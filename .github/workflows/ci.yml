@@ -35,6 +35,8 @@ jobs:
           wifi_ssid: "ci-ssid"
           wifi_password: "ci-password"
           EOF
+      - name: Point example at the local checkout
+        run: python .github/use_local_component.py
       - name: esphome config
         run: esphome config example/reterminal_d1001.yaml
 
@@ -66,5 +68,7 @@ jobs:
           wifi_ssid: "ci-ssid"
           wifi_password: "ci-password"
           EOF
+      - name: Point example at the local checkout
+        run: python .github/use_local_component.py
       - name: esphome compile
         run: esphome compile example/reterminal_d1001.yaml
