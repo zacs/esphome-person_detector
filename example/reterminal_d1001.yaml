@@ -14,6 +14,10 @@ esphome:
 
 esp32:
   variant: ESP32P4
+  flash_size: 16MB
+  # The embedded pedestrian model makes the app image ~2 MB, over the default
+  # ~1.75 MB app partition. This table gives each OTA slot 6 MB. See README.
+  partitions: partitions.csv
   framework:
     type: esp-idf
     version: 5.5.4          # matches ESPHome 2026.6.0's pin

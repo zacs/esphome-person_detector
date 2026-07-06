@@ -138,11 +138,25 @@ A full, ready-to-compile D1001 config lives in
 
 All large buffers are placed in the shared PSRAM; internal SRAM use is limited to
 the single inference-task stack, so this coexists with a heavy 800×1280
-MIPI-DSI LVGL display. Exact figures depend on the model build and your ESPHome
-version — **measure them on your own build** rather than trusting a table blind:
+MIPI-DSI LVGL display.
 
-- **Flash** — check the linker `.map` / `esphome compile` size output for the
-  model's read-only data section (the pedestrian weights).
+**Flash / partition table (required).** The pedestrian model is embedded in the
+app image (flash rodata), which makes the linked binary **~2.0 MB** — over
+ESPHome's default ~1.75 MB app partition. You **must** use a partition table
+with a larger app partition. The example ships one (`example/partitions.csv`,
+6 MB OTA slots on 16 MB flash) wired via:
+
+```yaml
+esp32:
+  flash_size: 16MB
+  partitions: partitions.csv
+```
+
+Exact figures depend on the model build and your ESPHome version — **measure them
+on your own build**:
+
+- **Flash** — the `esphome compile` size output reports the app image size
+  (RAM/Flash summary). The pedestrian model dominates the delta.
 - **PSRAM** — the component logs `model runtime PSRAM cost` at startup and a
   `PSRAM free low-water` figure (an arena high-water proxy) in `dump_config`.
   Watch these in the logs.
