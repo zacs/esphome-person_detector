@@ -1,0 +1,75 @@
+# CI test config — exercises all of person_detect's codegen (main component,
+# binary_sensor / sensor / switch platforms, triggers) against a stub camera,
+# so `esphome config` / `esphome compile` can validate/build the component
+# without a real ESPHome camera platform. See test/components/fake_camera.
+#
+# The real, user-facing example is example/reterminal_d1001.yaml.
+
+esphome:
+  name: person-detect-citest
+
+esp32:
+  variant: ESP32P4
+  flash_size: 16MB
+  # The embedded pedestrian model makes the app image ~2 MB, over the default
+  # ~1.75 MB app partition — use a table with a large app partition.
+  partitions: partitions.csv
+  framework:
+    type: esp-idf
+    version: 5.5.4
+
+psram:
+  mode: hex          # ESP32-P4 PSRAM is hex-mode
+  speed: 200MHz
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [person_detect]
+  - source:
+      type: local
+      path: components
+    components: [fake_camera]
+
+fake_camera:
+  id: test_cam
+
+person_detect:
+  id: presence
+  camera_id: test_cam
+  interval: 1500ms
+  confidence_threshold: 60%
+  clear_after: 3
+  model: pedestrian
+  task_priority: 2
+  task_core: 1
+  on_person_detected:
+    - logger.log: "Person detected"
+  on_person_cleared:
+    - logger.log: "Room empty"
+
+binary_sensor:
+  - platform: person_detect
+    person_detect_id: presence
+    name: "Room Occupied"
+    filters:
+      - delayed_off: 15s
+
+sensor:
+  - platform: person_detect
+    person_detect_id: presence
+    type: confidence
+    name: "Presence Confidence"
+  - platform: person_detect
+    person_detect_id: presence
+    type: count
+    name: "People Count"
+
+switch:
+  - platform: person_detect
+    person_detect_id: presence
+    name: "Presence Detection"

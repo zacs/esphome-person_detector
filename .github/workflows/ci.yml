@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:          # build on every check-in, any branch
+  pull_request:
+  workflow_dispatch:
+
+# Cancel an in-flight run when a newer commit is pushed to the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin the ESPHome release this component is developed/tested against.
+  # Bump together with the ESP-IDF pin documented in DESIGN.md / README.
+  ESPHOME_VERSION: "2026.6.0"
+
+jobs:
+  # Required gate: validates ALL of this component's Python codegen + schema
+  # (main component, binary_sensor / sensor / switch platforms, triggers) via
+  # a stub camera, since released ESPHome has no configurable camera platform
+  # yet (see test/components/fake_camera). Fast — no C++/toolchain build.
+  validate:
+    name: Validate codegen + schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ESPHome
+        run: pip install "esphome==${ESPHOME_VERSION}"
+      - name: esphome config
+        run: esphome config test/person_detect_test.yaml
+
+  # Best-effort full firmware build: `esphome compile` of the component (with
+  # the stub camera) for ESP32-P4, pulling the ESP-IDF toolchain, esp-dl, and
+  # the pedestrian model. Non-blocking (continue-on-error) because the ESP-DL
+  # P4 build is heavy and its exact API is still settling; `validate` is the
+  # gate. Watch the logs here for real C++ build results.
+  compile:
+    name: esphome compile (ESP32-P4, best-effort)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache PlatformIO / ESP-IDF
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-${{ hashFiles('test/person_detect_test.yaml') }}
+          restore-keys: |
+            pio-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-
+      - name: Install ESPHome
+        run: pip install "esphome==${ESPHOME_VERSION}"
+      - name: esphome compile
+        run: esphome compile test/person_detect_test.yaml

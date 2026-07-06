@@ -1,0 +1,17 @@
+# ESPHome build artifacts
+.esphome/
+*.bin
+*.elf
+
+# Local secrets (CI generates its own dummy)
+secrets.yaml
+example/secrets.yaml
+
+# Python
+__pycache__/
+*.pyc
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,29 @@
+esphome-person_detector
+Copyright (C) 2026 the esphome-person_detector contributors
+
+This product's own source (the `person_detect` component) is licensed under
+GPL-3.0-only (see LICENSE).
+
+It builds on and pulls in third-party components at build time, each under its
+own license:
+
+- Espressif ESP-DL (https://github.com/espressif/esp-dl)
+  Licensed under the Apache License, Version 2.0, with some files under MIT.
+  Copyright (C) Espressif Systems (Shanghai) Co., Ltd.
+  A copy of the Apache-2.0 license: https://www.apache.org/licenses/LICENSE-2.0
+
+- Espressif "pedestrian_detect" model + component
+  (https://components.espressif.com/components/espressif/pedestrian_detect,
+  https://github.com/espressif/esp-dl/tree/master/models/pedestrian_detect)
+  Model weights and code © Espressif Systems, distributed under the terms
+  stated in that component's manifest/license (Apache-2.0 / MIT as applicable).
+
+- ESPHome (https://github.com/esphome/esphome)
+  GPL-3.0. This component is designed to be consumed by ESPHome via its
+  `external_components:` mechanism and links against ESPHome headers at build
+  time.
+
+These third-party notices are provided for attribution and do not modify the
+license of this project's own source. When redistributing binaries built from
+this component, retain the applicable upstream license texts as required by
+Apache-2.0 §4 and the MIT license.
