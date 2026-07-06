@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Pin the ESPHome release this component is developed/tested against.
+  # Bump together with the ESP-IDF pin documented in DESIGN.md / README.
+  ESPHOME_VERSION: "2026.6.0"
+
+jobs:
+  # Fast gate on THIS component's Python codegen + schema: fully validates the
+  # example (loads __init__.py / binary_sensor.py / sensor.py / switch.py and
+  # runs codegen) without the heavy P4 C++/toolchain build.
+  validate:
+    name: Validate config (codegen + schema)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ESPHome
+        run: pip install "esphome==${ESPHOME_VERSION}"
+      - name: Create dummy secrets
+        run: |
+          cat > example/secrets.yaml <<'EOF'
+          wifi_ssid: "ci-ssid"
+          wifi_password: "ci-password"
+          EOF
+      - name: esphome config
+        run: esphome config example/reterminal_d1001.yaml
+
+  # Full firmware build the brief asks for: `esphome compile` on the D1001
+  # example against the pinned ESPHome release. Pulls the ESP-IDF P4 toolchain,
+  # esp-dl, and the pedestrian model, so it is slow; caching keeps it bearable.
+  compile:
+    name: esphome compile (ESP32-P4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache PlatformIO / ESP-IDF
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-${{ hashFiles('example/reterminal_d1001.yaml') }}
+          restore-keys: |
+            pio-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-
+      - name: Install ESPHome
+        run: pip install "esphome==${ESPHOME_VERSION}"
+      - name: Create dummy secrets
+        run: |
+          cat > example/secrets.yaml <<'EOF'
+          wifi_ssid: "ci-ssid"
+          wifi_password: "ci-password"
+          EOF
+      - name: esphome compile
+        run: esphome compile example/reterminal_d1001.yaml
