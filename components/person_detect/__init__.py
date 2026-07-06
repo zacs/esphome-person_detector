@@ -8,7 +8,6 @@ binary_sensor / sensors / triggers. No frame ever leaves the device.
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
-from esphome.components import camera
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
     add_idf_component,
@@ -17,11 +16,18 @@ from esphome.components.esp32 import (
 from esphome.const import CONF_ID, CONF_MODEL, CONF_TRIGGER_ID
 
 CODEOWNERS = ["@zacs"]
-DEPENDENCIES = ["camera", "esp32"]
+DEPENDENCIES = ["esp32"]
 MULTI_CONF = True
 
 person_detect_ns = cg.esphome_ns.namespace("person_detect")
 PersonDetector = person_detect_ns.class_("PersonDetector", cg.Component)
+
+# ESPHome's modular `camera` framework currently ships a C++-only base
+# (esphome::camera::Camera); its Python module does not export a `Camera`
+# codegen class to import. Reference the C++ base by namespace so we can
+# use_id() a camera source without depending on a non-existent Python symbol.
+camera_ns = cg.esphome_ns.namespace("camera")
+Camera = camera_ns.class_("Camera")
 
 PersonDetectedTrigger = person_detect_ns.class_(
     "PersonDetectedTrigger", automation.Trigger.template()
@@ -58,7 +64,7 @@ CONF_PERSON_DETECT_ID = "person_detect_id"
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(PersonDetector),
-        cv.Required(CONF_CAMERA_ID): cv.use_id(camera.Camera),
+        cv.Required(CONF_CAMERA_ID): cv.use_id(Camera),
         cv.Optional(
             CONF_INTERVAL, default="1500ms"
         ): cv.positive_time_period_milliseconds,
