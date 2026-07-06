@@ -67,13 +67,87 @@ esphome compile example/reterminal_d1001.yaml
 (CI runs both `esphome config` and `esphome compile` on that example — see
 `.github/workflows/ci.yml`.)
 
-## Installation
+## Using it as an add-on component
+
+This is a standalone ESPHome **external component** — you don't fork it or copy
+files in. You point an existing ESP32-P4 ESPHome config at this repo and ESPHome
+pulls it in at build time. It's designed to bolt onto a device that's already
+doing something else (e.g. an LVGL display): it owns no camera hardware and adds
+nothing to the main loop.
+
+### 1. Pull the component in
 
 ```yaml
 external_components:
   - source: github://zacs/esphome-person_detector
     components: [person_detect]
+  # Pin to a released tag/commit for reproducible builds, e.g.:
+  # - source: github://zacs/esphome-person_detector@v0.1.0
+  #   components: [person_detect]
 ```
+
+### 2. Make sure your device meets the prerequisites
+
+`person_detect` fails codegen with a clear message if these aren't met:
+
+```yaml
+esp32:
+  variant: ESP32P4          # ESP32-P4 only (v1)
+  flash_size: 16MB
+  partitions: partitions.csv # app image is ~2 MB — needs a big app partition
+  framework:
+    type: esp-idf           # ESP-IDF only (no Arduino on P4)
+    version: 5.5.4
+
+psram:                      # required — model runtime + frame buffers live here
+  mode: hex
+  speed: 200MHz
+```
+
+Copy [`example/partitions.csv`](example/partitions.csv) next to your config (see
+[Memory / flash budget](#memory--flash-budget) for why it's required). If your
+device already defines a partition table, widen an app slot to ≥ ~3 MB instead.
+
+### 3. Give it a camera source and wire up the detector
+
+`person_detect` consumes frames from an ESPHome **camera by ID** — it composes
+with whatever camera you've configured rather than owning the sensor:
+
+```yaml
+# your camera source, configured with ESPHome's camera framework
+camera:
+  - platform: mipi_csi
+    id: my_cam
+    # ...board-specific keys (see the caveat in the D1001 example)...
+
+person_detect:
+  id: presence
+  camera_id: my_cam         # <- the camera's id
+
+binary_sensor:
+  - platform: person_detect
+    person_detect_id: presence
+    name: "Room Occupied"
+```
+
+That's the minimum. Add the optional `sensor` / `switch` / triggers below as
+needed. A complete device config is in
+[`example/reterminal_d1001.yaml`](example/reterminal_d1001.yaml).
+
+> **Heads-up (camera source):** the "consume an ESPHome camera by ID" path
+> depends on ESPHome's modular camera framework, which as of 2026.6.0 ships a
+> C++ base with no user-configurable camera platform yet — so a real camera
+> `- platform:` block may not validate on your ESPHome version. See
+> [`DESIGN.md`](DESIGN.md) §7 for status and the direct-`esp_video` backend
+> planned behind the `FrameSource` interface for boards ESPHome can't yet drive.
+
+### Coexisting with an LVGL / display config
+
+The inference model runs on its own low-priority, pinned FreeRTOS task
+(`task_priority`, `task_core`), publishes only from the main loop, and keeps
+every large buffer in PSRAM — so it stays out of the way of an 800×1280
+MIPI-DSI LVGL UI. If your UI task is pinned to a core, pin detection to the
+other with `task_core:`.
 
 ## Configuration
 
