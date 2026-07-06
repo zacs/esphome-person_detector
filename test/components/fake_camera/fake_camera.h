@@ -3,14 +3,16 @@
 // Test-only stub: satisfies esphome::camera::Camera so person_detect can be
 // validated and compiled in CI without a real camera platform. It registers as
 // a camera but never delivers frames. NOT for production use.
+//
+// camera::Camera already derives from esphome::Component, so we inherit only
+// camera::Camera (inheriting Component again would make it an ambiguous base).
 
-#include "esphome/core/component.h"
 #include "esphome/components/camera/camera.h"
 
 namespace esphome {
 namespace fake_camera {
 
-class FakeCamera : public Component, public camera::Camera {
+class FakeCamera : public camera::Camera {
  public:
   void add_listener(camera::CameraListener *listener) override {}
   camera::CameraImageReader *create_image_reader() override { return nullptr; }

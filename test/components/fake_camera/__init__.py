@@ -19,10 +19,11 @@ from esphome.const import CONF_ID
 AUTO_LOAD = ["camera"]
 
 camera_ns = cg.esphome_ns.namespace("camera")
-Camera = camera_ns.class_("Camera")
+# esphome::camera::Camera already derives from Component.
+Camera = camera_ns.class_("Camera", cg.Component)
 
 fake_camera_ns = cg.esphome_ns.namespace("fake_camera")
-FakeCamera = fake_camera_ns.class_("FakeCamera", cg.Component, Camera)
+FakeCamera = fake_camera_ns.class_("FakeCamera", Camera)
 
 CONFIG_SCHEMA = cv.Schema(
     {
