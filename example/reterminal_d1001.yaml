@@ -21,7 +21,7 @@ esp32:
 # The ESP-DL model runtime, the decoded frame buffer, and the camera frame
 # buffers all live in the 32 MB PSRAM. Required.
 psram:
-  mode: octal
+  mode: hex          # ESP32-P4 PSRAM is hex-mode
   speed: 200MHz
 
 logger:

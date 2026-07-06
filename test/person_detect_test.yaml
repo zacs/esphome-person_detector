@@ -15,7 +15,7 @@ esp32:
     version: 5.5.4
 
 psram:
-  mode: octal
+  mode: hex          # ESP32-P4 PSRAM is hex-mode
   speed: 200MHz
 
 logger:
