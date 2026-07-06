@@ -1,10 +1,14 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  push:          # build on every check-in, any branch
   pull_request:
   workflow_dispatch:
+
+# Cancel an in-flight run when a newer commit is pushed to the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   # Pin the ESPHome release this component is developed/tested against.
