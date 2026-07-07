@@ -157,12 +157,19 @@ void PersonDetector::run_inference_(const FrameView &frame) {
            best, person, (unsigned) psram);
 
   xSemaphoreTake(this->result_mutex_, portMAX_DELAY);
-  this->pending_.person_raw = person;
-  this->pending_.best_score = best;
-  this->pending_.count = count;
-  this->pending_.infer_ms = dt;
   this->last_infer_ms_ = dt;
-  this->has_new_result_ = true;
+  // Discard a result whose frame was captured for a now-disabled detector, so a
+  // late-completing inference can't re-assert presence after the privacy switch
+  // is toggled off. Paired with the mutex-guarded clear in set_enabled() this is
+  // robust even when disable races the write: enabled_ is set false before that
+  // clear runs, so whichever acquires the mutex last, no stale result survives.
+  if (this->enabled_.load()) {
+    this->pending_.person_raw = person;
+    this->pending_.best_score = best;
+    this->pending_.count = count;
+    this->pending_.infer_ms = dt;
+    this->has_new_result_ = true;
+  }
   xSemaphoreGive(this->result_mutex_);
 }
 
@@ -172,6 +179,15 @@ void PersonDetector::loop() {
     this->miss_streak_ = 0;
     if (this->present_state_)
       this->publish_present_(false);
+    // Privacy off: reset the numeric sensors too. Otherwise they stay frozen at
+    // their last reading (e.g. 92% confidence, count 2) while presence reads
+    // clear, showing contradictory state in Home Assistant.
+#ifdef USE_SENSOR
+    if (this->confidence_sensor_ != nullptr)
+      this->confidence_sensor_->publish_state(0.0f);
+    if (this->count_sensor_ != nullptr)
+      this->count_sensor_->publish_state(0);
+#endif
   }
 
   // Don't act on a late in-flight inference while detection is disabled.
@@ -240,6 +256,14 @@ void PersonDetector::set_enabled(bool enabled) {
     this->source_->stop();
     // Clear presence promptly when the user cuts the camera.
     this->force_clear_.store(true);
+    // Drop any result the task already queued so it can't be published on
+    // re-enable. enabled_ was set false above, so the guard in run_inference_
+    // handles a result finalized concurrently with this disable.
+    if (this->result_mutex_ != nullptr) {
+      xSemaphoreTake(this->result_mutex_, portMAX_DELAY);
+      this->has_new_result_ = false;
+      xSemaphoreGive(this->result_mutex_);
+    }
   }
 }
 
