@@ -14,6 +14,12 @@
 
 #include "linux/videodev2.h"
 
+// ESP-IDF's <sys/mman.h> compat shim doesn't always define MAP_FAILED.
+#ifndef MAP_FAILED
+#define MAP_FAILED (reinterpret_cast<void *>(-1))
+#endif
+
+#include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_video_init.h"
@@ -50,7 +56,6 @@ void EspVideoCamera::setup() {
   csi.sccb_config.freq = this->sccb_freq_;
   csi.reset_pin = static_cast<gpio_num_t>(-1);   // handled via expander
   csi.pwdn_pin = static_cast<gpio_num_t>(-1);
-  csi.dont_init_ldo = false;
 
   esp_video_init_config_t cfg = {};
   cfg.csi = &csi;
