@@ -17,6 +17,10 @@ from esphome.const import CONF_ID, CONF_MODEL, CONF_TRIGGER_ID
 
 CODEOWNERS = ["@zacs"]
 DEPENDENCIES = ["esp32"]
+# person_detector.h / esphome_camera_source.* always include the camera base
+# (esphome/components/camera/camera.h) for the JPEG path, so ensure the camera
+# component's sources are compiled even in a CSI-only (frame_source_id) config.
+AUTO_LOAD = ["camera"]
 MULTI_CONF = True
 
 person_detect_ns = cg.esphome_ns.namespace("person_detect")
