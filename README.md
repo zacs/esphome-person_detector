@@ -108,21 +108,24 @@ Copy [`example/partitions.csv`](example/partitions.csv) next to your config (see
 [Memory / flash budget](#memory--flash-budget) for why it's required). If your
 device already defines a partition table, widen an app slot to ≥ ~3 MB instead.
 
-### 3. Give it a camera source and wire up the detector
+### 3. Give it a frame source and wire up the detector
 
-`person_detect` consumes frames from an ESPHome **camera by ID** — it composes
-with whatever camera you've configured rather than owning the sensor:
+`person_detect` takes frames from exactly one of two backends (see
+[Frame source backends](#frame-source-backends)). On the ESP32-P4 / SC2356 the
+working one is the built-in **`esp_video_camera`** (CSI + ISP + PPA → RGB888):
 
 ```yaml
-# your camera source, configured with ESPHome's camera framework
-camera:
-  - platform: mipi_csi
-    id: my_cam
-    # ...board-specific keys (see the caveat in the D1001 example)...
+esp_video_camera:
+  id: d1001_cam
+  sda: 37           # SC2356 SCCB (sensor I2C)
+  scl: 38
+  resolution: 1280x720
+  rotation: 90      # portrait mount — verify on hardware (BRINGUP.md)
+  # power/reset lines live on the PCA9535 expander; see the example
 
 person_detect:
   id: presence
-  camera_id: my_cam         # <- the camera's id
+  frame_source_id: d1001_cam   # <- raw backend (not camera_id)
 
 binary_sensor:
   - platform: person_detect
@@ -131,15 +134,23 @@ binary_sensor:
 ```
 
 That's the minimum. Add the optional `sensor` / `switch` / triggers below as
-needed. A complete device config is in
-[`example/reterminal_d1001.yaml`](example/reterminal_d1001.yaml).
+needed. A complete device config (with the expander wiring) is in
+[`example/reterminal_d1001.yaml`](example/reterminal_d1001.yaml); a first-flash
+verification checklist is in [`BRINGUP.md`](BRINGUP.md).
 
-> **Heads-up (camera source):** the "consume an ESPHome camera by ID" path
-> depends on ESPHome's modular camera framework, which as of 2026.6.0 ships a
-> C++ base with no user-configurable camera platform yet — so a real camera
-> `- platform:` block may not validate on your ESPHome version. See
-> [`DESIGN.md`](DESIGN.md) §7 for status and the direct-`esp_video` backend
-> planned behind the `FrameSource` interface for boards ESPHome can't yet drive.
+### Frame source backends
+
+`person_detect` needs exactly one of:
+
+| Key | Backend | Frames | Use when |
+|---|---|---|---|
+| `frame_source_id` | **`esp_video_camera`** (this repo) | raw RGB888 via CSI+ISP+PPA | ESP32-P4 MIPI-CSI sensors (SC2356 / D1001) — **the working path today** |
+| `camera_id` | an ESPHome `camera` | JPEG, decoded on-device | a board that already exposes a JPEG camera through ESPHome's camera framework |
+
+The `camera_id` path exists because the brief asked the detector to *compose*
+with ESPHome's camera framework — but that framework, as of 2026.6.0, ships a
+C++ base with no user-configurable MIPI-CSI platform, so on the D1001 you use
+`esp_video_camera`. Both sit behind the same `FrameSource` seam (DESIGN.md §2).
 
 ### Coexisting with an LVGL / display config
 

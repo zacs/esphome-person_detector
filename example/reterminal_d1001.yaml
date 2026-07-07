@@ -1,11 +1,13 @@
 # -----------------------------------------------------------------------------
 # person_detect — full working example for the Seeed Studio reTerminal D1001
-# (ESP32-P4 + MIPI-CSI SC2356 2 MP camera).
-#
-# On-device human presence detection. No frame ever leaves the device.
+# (ESP32-P4 + MIPI-CSI SC2356 2 MP camera), using the on-board esp_video_camera
+# capture backend (CSI + ISP + PPA -> RGB888). On-device only; no frame leaves.
 #
 # Tested toolchain: ESPHome 2026.6.0 (ESP-IDF v5.5.4).
-# Compile with:  esphome compile example/reterminal_d1001.yaml
+# Compile:  esphome compile example/reterminal_d1001.yaml
+#
+# HARDWARE BRING-UP: pins/rotation/channel-order below are the best-known values
+# for the D1001; verify against your board on first flash. See BRINGUP.md.
 # -----------------------------------------------------------------------------
 
 esphome:
@@ -15,21 +17,18 @@ esphome:
 esp32:
   variant: ESP32P4
   flash_size: 16MB
-  # The embedded pedestrian model makes the app image ~2 MB, over the default
-  # ~1.75 MB app partition. This table gives each OTA slot 6 MB. See README.
-  partitions: partitions.csv
+  partitions: partitions.csv   # ~2 MB app image (embedded model) — see README
   framework:
     type: esp-idf
-    version: 5.5.4          # matches ESPHome 2026.6.0's pin
+    version: 5.5.4
 
-# The ESP-DL model runtime, the decoded frame buffer, and the camera frame
-# buffers all live in the 32 MB PSRAM. Required.
+# Model runtime, capture buffers, and the PPA output frame all live in PSRAM.
 psram:
-  mode: hex          # ESP32-P4 PSRAM is hex-mode
+  mode: hex
   speed: 200MHz
 
 logger:
-  level: DEBUG              # person_detect logs inference time / arena at DEBUG
+  level: DEBUG                 # inference time / arena / PPA timing at DEBUG
 
 api:
 ota:
@@ -40,43 +39,50 @@ wifi:
 
 external_components:
   - source: github://zacs/esphome-person_detector
-    components: [person_detect]
+    components: [person_detect, esp_video_camera]
 
-# -----------------------------------------------------------------------------
-# Camera source — configured with ESPHome's own modular camera framework.
-#
-# NOTE: The MIPI-CSI camera platform and its exact keys are part of ESPHome's
-# (still-evolving) camera framework, NOT this component. The block below targets
-# the reTerminal D1001's SC2356 sensor running MIPI RAW8 1280x720@30fps (the
-# board's factory default — see examples/factory_firmware/sdkconfig.defaults in
-# Seeed-Studio/reTerminal-D1001: CONFIG_CAMERA_SC2356 /
-# CONFIG_CAMERA_SC2356_MIPI_RAW8_1280X720_30FPS). Verify the platform name and
-# keys against the camera docs for YOUR ESPHome version; if your ESPHome build
-# does not yet ship an SC2356 sensor driver, see DESIGN.md §7 for the direct
-# esp_video backend option. person_detect only needs a camera `id` to consume.
-# -----------------------------------------------------------------------------
-camera:
-  - platform: mipi_csi
-    id: d1001_cam
-    name: "reTerminal Camera"
-    resolution: 1280x720
-    # Board-specific sensor wiring is handled by the sensor driver / board
-    # definition; SC2356 lives on the CSI SCCB (I2C) bus. Do not guess pins —
-    # take them from your board's camera platform documentation.
+# --- I2C GPIO expander (PCA9535 / XL9535) that carries the camera power lines --
+# Source for the control-line mapping (PWDN=bit3, CAM_EN=bit1, RST=bit9):
+# task/board notes for the reTerminal D1001. Set the expander's I2C bus pins and
+# address to your board; verify on hardware.
+i2c:
+  - id: expander_bus
+    sda: GPIO8                 # <-- verify: expander I2C SDA
+    scl: GPIO7                 # <-- verify: expander I2C SCL
+    frequency: 400kHz
 
-# -----------------------------------------------------------------------------
-# The presence detector: consumes d1001_cam, runs the pedestrian model.
-# -----------------------------------------------------------------------------
+pca9554:
+  - id: cam_expander
+    address: 0x20
+    pin_count: 16              # PCA9535/XL9535 = 16-bit
+
+# --- MIPI-CSI camera capture (SC2356) -----------------------------------------
+esp_video_camera:
+  id: d1001_cam
+  sda: 37                      # SC2356 SCCB (sensor I2C)
+  scl: 38
+  resolution: 1280x720
+  rotation: 90                 # portrait mounting — verify direction on hardware
+  swap_rgb: false              # flip if detections are poor / colors look wrong
+  enable_pin:                  # CAM_EN = expander bit 1
+    pca9554: cam_expander
+    number: 1
+  powerdown_pin:               # PWDN = expander bit 3 (active-high power-down)
+    pca9554: cam_expander
+    number: 3
+  reset_pin:                   # RST = expander bit 9 (active-low)
+    pca9554: cam_expander
+    number: 9
+    inverted: true
+
+# --- The detector -------------------------------------------------------------
 person_detect:
   id: presence
-  camera_id: d1001_cam
-  interval: 1500ms            # one inference every ~1.5 s (presence, not video)
+  frame_source_id: d1001_cam   # raw RGB backend (not camera_id)
+  interval: 1500ms
   confidence_threshold: 60%
-  clear_after: 3              # 3 consecutive misses before clearing
+  clear_after: 3
   model: pedestrian
-  # Advanced (defaults shown): keep the model task below the UI/LVGL task.
-  task_priority: 2
-  task_core: 1
   on_person_detected:
     - logger.log: "Person detected"
   on_person_cleared:
@@ -86,7 +92,6 @@ binary_sensor:
   - platform: person_detect
     person_detect_id: presence
     name: "Room Occupied"
-    # Occupancy-sensor smoothing on top of the built-in clear_after debounce.
     filters:
       - delayed_off: 15s
 
@@ -103,4 +108,4 @@ sensor:
 switch:
   - platform: person_detect
     person_detect_id: presence
-    name: "Presence Detection"      # privacy toggle: off => camera fully idle
+    name: "Presence Detection"   # privacy toggle: off => camera idle
