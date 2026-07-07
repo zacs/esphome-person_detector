@@ -48,6 +48,9 @@ class EsphomeCameraSource : public FrameSource, public camera::CameraListener {
   void *decoded_data_{nullptr};
 
   bool streaming_{false};
+  // Latches after the first non-JPEG frame so we log the (fatal, persistent)
+  // format mismatch once instead of every capture interval.
+  bool logged_not_jpeg_{false};
 };
 
 }  // namespace person_detect

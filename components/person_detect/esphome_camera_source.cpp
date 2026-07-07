@@ -85,10 +85,40 @@ bool EsphomeCameraSource::acquire(FrameView &out, uint32_t timeout_ms) {
     return false;
   }
 
+  // The camera framework hands listeners JPEG-encoded frames (camera.h: "Camera
+  // implementation provides JPEG data in the CameraImage and notifies
+  // listeners"), and the CameraImage interface exposes no pixel-format accessor,
+  // so a raw fast path isn't possible here. Sniff the JPEG SOI marker up front:
+  // if a camera streams non-JPEG frames the decode would fail on every frame and
+  // detection would silently never fire. Fail loudly once instead of logging an
+  // opaque "JPEG decode failed" every interval. (DESIGN.md §7 risk #1/#2.)
+  if (len < 2 || buf[0] != 0xFF || buf[1] != 0xD8) {
+    if (!this->logged_not_jpeg_) {
+      this->logged_not_jpeg_ = true;
+      ESP_LOGE(TAG,
+               "Camera frames are not JPEG (first bytes 0x%02X 0x%02X, len=%u); "
+               "person_detect needs a JPEG-encoding camera. Detection is "
+               "inactive.",
+               buf[0], (len > 1 ? buf[1] : 0), (unsigned) len);
+    }
+    this->in_flight_.reset();
+    return false;
+  }
+
   // Decode the JPEG bitstream to a fresh RGB888 buffer. sw_/hw_decode_jpeg
   // return an img_t by value with a heap_caps-allocated .data (PSRAM when
   // configured) and width/height read from the JPEG header; .data is nullptr on
   // failure. On ESP32-P4 the hardware JPEG codec is used.
+  //
+  // NOTE: ESP-DL's decode allocates the output buffer internally each call (and
+  // hw_decode_jpeg also creates/destroys a JPEG decoder engine per frame), so
+  // there is no decode-into-persistent-buffer path without bypassing ESP-DL and
+  // driving driver/jpeg_decode.h directly. We deliberately keep the library call
+  // for durability: the alloc/free is one same-size block alive at a time (~1.5s
+  // cadence, off the main loop), which TLSF reuses without progressive
+  // fragmentation, and the engine churn is swamped by the inference interval.
+  // Watch psram_free_low_ and last_infer_ms_ (both in dump_config) over long
+  // uptime; if either drifts, revisit a persistent engine + reusable buffer.
   dl::image::jpeg_img_t jpeg{};
   jpeg.data = buf;
   jpeg.data_len = len;
