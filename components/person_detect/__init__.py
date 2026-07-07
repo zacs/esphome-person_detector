@@ -29,6 +29,11 @@ PersonDetector = person_detect_ns.class_("PersonDetector", cg.Component)
 camera_ns = cg.esphome_ns.namespace("camera")
 Camera = camera_ns.class_("Camera")
 
+# Marker base for a raw (typed-RGB) frame source. A backend component (e.g.
+# esp_video_camera) subclasses esphome::person_detect::FrameSource; person_detect
+# references it by id and consumes frames directly, bypassing the JPEG path.
+FrameSource = person_detect_ns.class_("FrameSource")
+
 PersonDetectedTrigger = person_detect_ns.class_(
     "PersonDetectedTrigger", automation.Trigger.template()
 )
@@ -49,6 +54,7 @@ PEDESTRIAN_DETECT_COMPONENT = "espressif/pedestrian_detect"
 PEDESTRIAN_DETECT_REF = "0.3.0"
 
 CONF_CAMERA_ID = "camera_id"
+CONF_FRAME_SOURCE_ID = "frame_source_id"
 CONF_INTERVAL = "interval"
 CONF_CONFIDENCE_THRESHOLD = "confidence_threshold"
 CONF_CLEAR_AFTER = "clear_after"
@@ -64,7 +70,11 @@ CONF_PERSON_DETECT_ID = "person_detect_id"
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(PersonDetector),
-        cv.Required(CONF_CAMERA_ID): cv.use_id(Camera),
+        # Exactly one frame source (enforced below):
+        #   camera_id        -> an ESPHome camera (JPEG frames, decoded on-device)
+        #   frame_source_id  -> a raw RGB backend, e.g. esp_video_camera (CSI/ISP)
+        cv.Optional(CONF_CAMERA_ID): cv.use_id(Camera),
+        cv.Optional(CONF_FRAME_SOURCE_ID): cv.use_id(FrameSource),
         cv.Optional(
             CONF_INTERVAL, default="1500ms"
         ): cv.positive_time_period_milliseconds,
@@ -88,6 +98,21 @@ CONFIG_SCHEMA = cv.Schema(
 ).extend(cv.COMPONENT_SCHEMA)
 
 
+def _require_one_source(config):
+    has_camera = CONF_CAMERA_ID in config
+    has_raw = CONF_FRAME_SOURCE_ID in config
+    if has_camera == has_raw:  # both or neither
+        raise cv.Invalid(
+            "person_detect needs exactly one frame source: set either "
+            "'camera_id' (an ESPHome JPEG camera) or 'frame_source_id' (a raw "
+            "backend such as esp_video_camera), not both."
+        )
+    return config
+
+
+CONFIG_SCHEMA = cv.All(CONFIG_SCHEMA, _require_one_source)
+
+
 def _final_validate(config):
     # v1 is ESP32-P4 only: the model is P4-quantized and the frame path relies
     # on P4 CSI/PPA. Fail codegen with a clear message on anything else.
@@ -108,8 +133,12 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
-    cam = await cg.get_variable(config[CONF_CAMERA_ID])
-    cg.add(var.set_camera(cam))
+    if CONF_CAMERA_ID in config:
+        cam = await cg.get_variable(config[CONF_CAMERA_ID])
+        cg.add(var.set_camera(cam))
+    if CONF_FRAME_SOURCE_ID in config:
+        src = await cg.get_variable(config[CONF_FRAME_SOURCE_ID])
+        cg.add(var.set_frame_source(src))
 
     cg.add(var.set_interval(config[CONF_INTERVAL]))
     cg.add(var.set_confidence_threshold(config[CONF_CONFIDENCE_THRESHOLD]))

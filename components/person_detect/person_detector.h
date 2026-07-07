@@ -49,6 +49,10 @@ class PersonDetector : public Component {
   float get_setup_priority() const override { return setup_priority::LATE; }
 
   void set_camera(camera::Camera *camera) { this->camera_ = camera; }
+  // Inject a raw frame source (e.g. the esp_video CSI backend). Takes priority
+  // over camera_id: when set, the detector consumes typed RGB frames directly
+  // and no ESPHome camera / JPEG decode is involved.
+  void set_frame_source(FrameSource *source) { this->source_ = source; }
   void set_interval(uint32_t interval_ms) { this->interval_ms_ = interval_ms; }
   void set_confidence_threshold(float threshold) { this->threshold_ = threshold; }
   void set_clear_after(uint8_t clear_after) { this->clear_after_ = clear_after; }

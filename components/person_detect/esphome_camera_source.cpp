@@ -140,7 +140,7 @@ bool EsphomeCameraSource::acquire(FrameView &out, uint32_t timeout_ms) {
   out.data = static_cast<const uint8_t *>(decoded.data);
   out.width = decoded.width;
   out.height = decoded.height;
-  out.pix_type = static_cast<int>(dl::image::DL_IMAGE_PIX_TYPE_RGB888);
+  out.format = FRAME_FORMAT_RGB888;
   return true;
 }
 

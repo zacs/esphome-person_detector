@@ -32,13 +32,17 @@ static const char *model_to_string(Model model) {
 void PersonDetector::setup() {
   ESP_LOGCONFIG(TAG, "Setting up person_detect...");
 
-  if (this->camera_ == nullptr) {
-    ESP_LOGE(TAG, "No camera configured");
-    this->mark_failed();
-    return;
+  // Frame source selection: a raw source injected via set_frame_source() (e.g.
+  // the esp_video CSI backend) wins; otherwise fall back to wrapping an ESPHome
+  // camera in the JPEG-decoding source.
+  if (this->source_ == nullptr) {
+    if (this->camera_ == nullptr) {
+      ESP_LOGE(TAG, "No frame source: set either camera_id or a raw source");
+      this->mark_failed();
+      return;
+    }
+    this->source_ = new EsphomeCameraSource(this->camera_);  // NOLINT
   }
-
-  this->source_ = new EsphomeCameraSource(this->camera_);  // NOLINT
   if (!this->source_->init()) {
     ESP_LOGE(TAG, "Frame source init failed");
     this->mark_failed();
@@ -129,7 +133,18 @@ void PersonDetector::run_inference_(const FrameView &frame) {
   img.data = const_cast<uint8_t *>(frame.data);
   img.width = frame.width;
   img.height = frame.height;
-  img.pix_type = static_cast<dl::image::pix_type_t>(frame.pix_type);
+  switch (frame.format) {
+    case FRAME_FORMAT_RGB565:
+      img.pix_type = dl::image::DL_IMAGE_PIX_TYPE_RGB565LE;
+      break;
+    case FRAME_FORMAT_GRAYSCALE:
+      img.pix_type = dl::image::DL_IMAGE_PIX_TYPE_GRAY;
+      break;
+    case FRAME_FORMAT_RGB888:
+    default:
+      img.pix_type = dl::image::DL_IMAGE_PIX_TYPE_RGB888;
+      break;
+  }
 
   uint32_t t0 = millis();
   // ESP-DL resizes the frame to the model's 224x224 input internally; on P4 that

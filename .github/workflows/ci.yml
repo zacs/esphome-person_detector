@@ -30,8 +30,10 @@ jobs:
           python-version: "3.12"
       - name: Install ESPHome
         run: pip install "esphome==${ESPHOME_VERSION}"
-      - name: esphome config
+      - name: esphome config (JPEG path)
         run: esphome config test/person_detect_test.yaml
+      - name: esphome config (CSI raw path)
+        run: esphome config test/person_detect_csi_test.yaml
 
   # Best-effort full firmware build: `esphome compile` of the component (with
   # the stub camera) for ESP32-P4, pulling the ESP-IDF toolchain, esp-dl, and
@@ -53,10 +55,10 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/pip
-          key: pio-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-${{ hashFiles('test/person_detect_test.yaml') }}
+          key: pio-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-${{ hashFiles('test/person_detect_csi_test.yaml') }}
           restore-keys: |
             pio-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-
       - name: Install ESPHome
         run: pip install "esphome==${ESPHOME_VERSION}"
-      - name: esphome compile
-        run: esphome compile test/person_detect_test.yaml
+      - name: esphome compile (CSI raw path — esp_video + ISP + PPA + ESP-DL)
+        run: esphome compile test/person_detect_csi_test.yaml

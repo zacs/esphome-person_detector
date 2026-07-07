@@ -1,0 +1,48 @@
+# CI test for the esp_video_camera (MIPI-CSI) raw backend + person_detect.
+# Exercises the real capture path (esp_video + ISP + PPA + ESP-DL) — no
+# fake_camera, no JPEG. Expander control pins are optional and omitted here to
+# keep CI free of a pca9554 hub; the D1001 example wires them for real hardware.
+
+esphome:
+  name: person-detect-csi-citest
+
+esp32:
+  variant: ESP32P4
+  flash_size: 16MB
+  partitions: partitions.csv
+  framework:
+    type: esp-idf
+    version: 5.5.4
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [person_detect, esp_video_camera]
+
+esp_video_camera:
+  id: cam
+  sda: 37          # SC2356 SCCB (I2C) — reTerminal D1001
+  scl: 38
+  resolution: 1280x720
+  rotation: 90     # portrait mount (verify direction on hardware)
+
+person_detect:
+  id: presence
+  frame_source_id: cam
+  interval: 1500ms
+  confidence_threshold: 60%
+
+binary_sensor:
+  - platform: person_detect
+    person_detect_id: presence
+    name: "Room Occupied"
+    filters:
+      - delayed_off: 15s

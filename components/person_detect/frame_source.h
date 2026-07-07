@@ -5,15 +5,20 @@
 namespace esphome {
 namespace person_detect {
 
+// Pixel layout of a FrameView. Kept ESP-DL-free so backends don't need ESP-DL
+// headers; the detector maps this to dl::image::pix_type_t in one place.
+enum FrameFormat : int {
+  FRAME_FORMAT_RGB888 = 0,  // 24-bit, R,G,B byte order
+  FRAME_FORMAT_RGB565 = 1,  // 16-bit little-endian
+  FRAME_FORMAT_GRAYSCALE = 2,
+};
+
 // A single frame handed to the detector, valid only until FrameSource::release().
-// `pix_type` carries the ESP-DL pixel-format enum value (dl::image::pix_type_t)
-// so this header stays free of ESP-DL includes; the detector passes it straight
-// through to the model's img_t.
 struct FrameView {
   const uint8_t *data{nullptr};
   uint16_t width{0};
   uint16_t height{0};
-  int pix_type{0};  // dl::image::pix_type_t value, e.g. DL_IMAGE_PIX_TYPE_RGB888
+  FrameFormat format{FRAME_FORMAT_RGB888};
 };
 
 // Abstraction over "where frames come from". v1 ships EsphomeCameraSource, which
