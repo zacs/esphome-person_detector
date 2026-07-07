@@ -1,5 +1,9 @@
 #pragma once
 
+#include "esphome/core/defines.h"
+
+#ifdef USE_SWITCH
+
 #include "esphome/components/switch/switch.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
@@ -19,3 +23,5 @@ class PersonDetectSwitch : public switch_::Switch, public Parented<PersonDetecto
 
 }  // namespace person_detect
 }  // namespace esphome
+
+#endif  // USE_SWITCH
