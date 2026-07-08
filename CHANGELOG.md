@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.10 — exposure via extended controls + landscape default
+
+The v0.1.9 exposure code silently did nothing — no `sensor exposure=` line ever
+logged and the frame stayed at the sensor minimum (`mean≈11`), because esp_video
+exposes sensor controls through the **extended** control API, not the legacy one
+this code used.
+
+- Set exposure/gain via **`VIDIOC_S_EXT_CTRLS`** (matching esp_video's own
+  examples) instead of `VIDIOC_S_CTRL`; range query is best-effort with a known
+  fallback (SC202CS exposure ~8..1244). Confirmed on hardware that the pipeline
+  is otherwise healthy — a flashlight drove the frame to a real image
+  (`max=248 mean=52`), so this is purely an exposure fix.
+- Default the reference board to **`rotation: 0` (landscape)** — with the D1001
+  in its default landscape orientation, the previous `rotation: 90` rotated a
+  standing person onto their side, which the pedestrian model won't detect. Use
+  90/270 only for a portrait mount.
+
 ## v0.1.9 — set sensor exposure/gain (fix near-black frames)
 
 The v0.1.8 probe showed `frame[min=8 max=16 mean=11]` — the pipeline works but

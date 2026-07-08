@@ -232,43 +232,55 @@ bool EspVideoCamera::start() {
 }
 
 void EspVideoCamera::apply_sensor_controls_() {
-  // Query a control's range, then set it to an explicit value or a fraction of
-  // its range. Returns true if the control exists and was set.
-  auto set_ctrl = [this](uint32_t cid, const char *name, int explicit_val,
-                         float frac) -> bool {
+  // esp_video exposes sensor controls through the *extended* control API
+  // (VIDIOC_S_EXT_CTRLS) — the legacy VIDIOC_S_CTRL path isn't wired up, which is
+  // why v0.1.9's controls silently did nothing (no "sensor exposure=" line and
+  // the frame stayed at the sensor's minimum). Query the range best-effort (for
+  // logging + fractional targets), then set via the extended API, falling back
+  // to a known range when the query isn't supported.
+  auto set_ext = [this](uint32_t cid, const char *name, int explicit_val,
+                        float frac, int fb_lo, int fb_hi) -> bool {
+    int lo = fb_lo, hi = fb_hi, def = -1;
     struct v4l2_queryctrl q = {};
     q.id = cid;
-    if (xioctl(this->fd_, VIDIOC_QUERYCTRL, &q) != 0 ||
-        (q.flags & V4L2_CTRL_FLAG_DISABLED))
-      return false;
-    int val = explicit_val >= 0
-                  ? explicit_val
-                  : (int) (q.minimum + (q.maximum - q.minimum) * frac);
-    if (val < q.minimum)
-      val = q.minimum;
-    if (val > q.maximum)
-      val = q.maximum;
-    struct v4l2_control c = {};
+    if (xioctl(this->fd_, VIDIOC_QUERYCTRL, &q) == 0 &&
+        !(q.flags & V4L2_CTRL_FLAG_DISABLED)) {
+      lo = (int) q.minimum;
+      hi = (int) q.maximum;
+      def = (int) q.default_value;
+    }
+    int val = explicit_val >= 0 ? explicit_val : (int) (lo + (hi - lo) * frac);
+    if (val < lo)
+      val = lo;
+    if (val > hi)
+      val = hi;
+
+    struct v4l2_ext_control c = {};
     c.id = cid;
     c.value = val;
-    if (xioctl(this->fd_, VIDIOC_S_CTRL, &c) != 0) {
-      ESP_LOGW(TAG, "set %s=%d failed: %s (range %d..%d)", name, val,
-               strerror(errno), (int) q.minimum, (int) q.maximum);
+    struct v4l2_ext_controls cs = {};
+    cs.which = V4L2_CTRL_WHICH_CUR_VAL;  // set current value regardless of class
+    cs.count = 1;
+    cs.controls = &c;
+    if (xioctl(this->fd_, VIDIOC_S_EXT_CTRLS, &cs) != 0) {
+      ESP_LOGW(TAG, "set %s=%d failed: %s", name, val, strerror(errno));
       return false;
     }
-    ESP_LOGCONFIG(TAG, "sensor %s=%d (range %d..%d, default %d)", name, val,
-                  (int) q.minimum, (int) q.maximum, (int) q.default_value);
+    ESP_LOGCONFIG(TAG, "sensor %s=%d (range %d..%d, default %d)", name, val, lo,
+                  hi, def);
     return true;
   };
 
-  // Exposure: the SC-family sensors power up at their minimum (a near-black
-  // frame), so lift to ~70% of range unless overridden. Try the raw exposure
-  // control, then the absolute variant esp_video may expose instead.
-  if (!set_ctrl(V4L2_CID_EXPOSURE, "exposure", this->exposure_, 0.70f))
-    set_ctrl(V4L2_CID_EXPOSURE_ABSOLUTE, "exposure_abs", this->exposure_, 0.70f);
-  // Gain: a moderate lift. Prefer analogue gain, fall back to generic gain.
-  if (!set_ctrl(V4L2_CID_ANALOGUE_GAIN, "analogue_gain", this->gain_, 0.30f))
-    set_ctrl(V4L2_CID_GAIN, "gain", this->gain_, 0.30f);
+  // Exposure is the dominant lever: the SC202CS powers up at its minimum (~8 of
+  // a ~1244 max = a near-black frame), so lift it well up by default. Try the
+  // raw exposure control, then the absolute variant.
+  if (!set_ext(V4L2_CID_EXPOSURE, "exposure", this->exposure_, 0.65f, 8, 1244))
+    set_ext(V4L2_CID_EXPOSURE_ABSOLUTE, "exposure_abs", this->exposure_, 0.65f, 8,
+            1244);
+  // Gain: a modest lift on top. Prefer analogue gain, fall back to generic gain.
+  if (!set_ext(V4L2_CID_ANALOGUE_GAIN, "analogue_gain", this->gain_, 0.25f, 0,
+               255))
+    set_ext(V4L2_CID_GAIN, "gain", this->gain_, 0.25f, 0, 255);
 }
 
 void EspVideoCamera::stop() {

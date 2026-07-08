@@ -83,7 +83,9 @@ esp_video_camera:
   scl: 38
   i2c_port: 1                  # dedicated controller (expander bus above is I2C0)
   resolution: 1280x720
-  rotation: 90                 # portrait mount — verify direction on hardware
+  rotation: 0                  # 0=landscape (upright); 90/270 for a portrait mount
+  # exposure/gain default to a bright auto value (SC202CS powers up near-black);
+  # set `exposure:`/`gain:` in raw sensor units to tune for your room.
   swap_rgb: false
   enable_pin:                  # CAM_EN = expander bit 1
     xl9535: cam_expander
