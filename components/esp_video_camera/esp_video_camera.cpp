@@ -47,10 +47,13 @@ void EspVideoCamera::setup() {
   }
 
   // Initialize the CSI + ISP pipeline and the sensor's SCCB (I2C). Power/reset
-  // are handled by us via the expander, so tell esp_video there are none.
+  // are handled by us via the expander, so tell esp_video there are none. The
+  // SCCB gets its OWN I2C controller (sccb_port_) — it must not be the port that
+  // ESPHome's `i2c:` bus already owns (e.g. the expander bus), or the master-bus
+  // install collides, the sensor never probes, and no /dev/video0 is created.
   esp_video_init_csi_config_t csi = {};
   csi.sccb_config.init_sccb = true;
-  csi.sccb_config.i2c_config.port = 0;
+  csi.sccb_config.i2c_config.port = this->sccb_port_;
   csi.sccb_config.i2c_config.scl_pin = static_cast<gpio_num_t>(this->sccb_scl_);
   csi.sccb_config.i2c_config.sda_pin = static_cast<gpio_num_t>(this->sccb_sda_);
   csi.sccb_config.freq = this->sccb_freq_;
@@ -59,9 +62,14 @@ void EspVideoCamera::setup() {
 
   esp_video_init_config_t cfg = {};
   cfg.csi = &csi;
+  ESP_LOGCONFIG(TAG, "esp_video_init: SCCB on I2C%d (SDA=%d SCL=%d @ %uHz)",
+                this->sccb_port_, this->sccb_sda_, this->sccb_scl_,
+                (unsigned) this->sccb_freq_);
   esp_err_t err = esp_video_init(&cfg);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_video_init failed: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "esp_video_init failed: %s — check SCCB wiring/port and that "
+                  "the sensor is powered (enable/reset lines)",
+             esp_err_to_name(err));
     this->mark_failed();
     return;
   }
@@ -104,6 +112,10 @@ bool EspVideoCamera::open_and_configure_() {
   this->fd_ = open(VIDEO_DEVICE, O_RDWR);
   if (this->fd_ < 0) {
     ESP_LOGE(TAG, "open(%s) failed: %s", VIDEO_DEVICE, strerror(errno));
+    ESP_LOGE(TAG, "  esp_video_init returned OK but registered no capture device "
+                  "— the CSI sensor was not detected over SCCB. Verify the "
+                  "SCCB port/pins, that the sensor Kconfig matches the module, "
+                  "and that enable/power-down/reset put it in a running state.");
     return false;
   }
 
@@ -308,8 +320,9 @@ void EspVideoCamera::release() {
 
 void EspVideoCamera::dump_config() {
   ESP_LOGCONFIG(TAG, "esp_video_camera (MIPI-CSI):");
-  ESP_LOGCONFIG(TAG, "  SCCB (sensor I2C): SDA=%d SCL=%d @ %uHz", this->sccb_sda_,
-                this->sccb_scl_, (unsigned) this->sccb_freq_);
+  ESP_LOGCONFIG(TAG, "  SCCB (sensor I2C): I2C%d SDA=%d SCL=%d @ %uHz",
+                this->sccb_port_, this->sccb_sda_, this->sccb_scl_,
+                (unsigned) this->sccb_freq_);
   LOG_PIN("  Enable pin: ", this->enable_pin_);
   LOG_PIN("  Power-down pin: ", this->powerdown_pin_);
   LOG_PIN("  Reset pin: ", this->reset_pin_);

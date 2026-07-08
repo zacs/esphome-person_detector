@@ -41,6 +41,7 @@ ESP_VIDEO_REF = "0.9.0"
 
 CONF_POWERDOWN_PIN = "powerdown_pin"
 CONF_ENABLE_PIN = "enable_pin"
+CONF_I2C_PORT = "i2c_port"
 CONF_SENSOR = "sensor"
 CONF_SWAP_RGB = "swap_rgb"
 CONF_FRAME_BUFFER_COUNT = "frame_buffer_count"
@@ -62,6 +63,11 @@ CONFIG_SCHEMA = cv.Schema(
         # Sensor SCCB (I2C) — reTerminal D1001: SDA=GPIO37, SCL=GPIO38.
         cv.Optional(CONF_SDA, default=37): cv.int_range(min=0, max=56),
         cv.Optional(CONF_SCL, default=38): cv.int_range(min=0, max=56),
+        # Dedicated I2C controller for the SCCB. MUST differ from the port the
+        # ESPHome `i2c:` bus uses (that one is port 0 when it's declared first,
+        # e.g. the D1001 expander bus), else the master-bus install collides and
+        # the sensor is never detected. P4 has controllers 0 and 1.
+        cv.Optional(CONF_I2C_PORT, default=1): cv.int_range(min=0, max=1),
         cv.Optional(CONF_FREQUENCY, default="100kHz"): cv.All(
             cv.frequency, cv.int_range(min=1)
         ),
@@ -89,6 +95,7 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     cg.add(var.set_sccb_pins(config[CONF_SDA], config[CONF_SCL]))
+    cg.add(var.set_sccb_port(config[CONF_I2C_PORT]))
     cg.add(var.set_sccb_freq(int(config[CONF_FREQUENCY])))
 
     if CONF_ENABLE_PIN in config:

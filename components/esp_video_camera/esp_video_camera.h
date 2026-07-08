@@ -48,6 +48,7 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
     this->sccb_sda_ = sda;
     this->sccb_scl_ = scl;
   }
+  void set_sccb_port(int port) { this->sccb_port_ = port; }
   void set_sccb_freq(uint32_t freq) { this->sccb_freq_ = freq; }
   void set_reset_pin(GPIOPin *pin) { this->reset_pin_ = pin; }
   void set_powerdown_pin(GPIOPin *pin) { this->powerdown_pin_ = pin; }
@@ -68,6 +69,8 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
   // Config
   int sccb_sda_{-1};
   int sccb_scl_{-1};
+  int sccb_port_{1};  // dedicated I2C controller for the sensor SCCB (must not
+                      // collide with the ESPHome i2c bus that owns the expander)
   uint32_t sccb_freq_{100000};
   GPIOPin *reset_pin_{nullptr};
   GPIOPin *powerdown_pin_{nullptr};

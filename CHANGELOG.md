@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.5 — camera SCCB on its own I2C controller (sensor now detectable)
+
+First hardware boot of v0.1.4 got the whole ESPHome app up (Wi-Fi AP, xl9535,
+PSRAM all fine) but `esp_video_camera` failed with
+`open(/dev/video0): No such file or directory` — `esp_video_init` returned OK yet
+registered no capture device, i.e. the SC2356 was never detected over SCCB.
+
+- **Fix:** the sensor SCCB was hard-coded to **I2C port 0**, the same controller
+  ESPHome assigns to the first `i2c:` bus — on the D1001 that's the GPIO20/21
+  expander bus. Two masters on one controller collide, the sensor never probes,
+  and no `/dev/video0` is created. The SCCB now uses a **dedicated controller**
+  via a new `i2c_port:` option (default **1**), independent of the expander bus.
+- Clearer diagnostics: log the SCCB port at setup, and on an `open()` miss say
+  explicitly that the sensor wasn't detected (with what to check).
+
 ## v0.1.4 — camera pinout verified against the D1001 schematic
 
 Cross-checked the camera wiring against the official reTerminal D1001 schematic
