@@ -26,7 +26,7 @@ env:
 
 jobs:
   build:
-    name: Build D1001 firmware
+    name: Build reference image (reTerminal D1001)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,8 +74,10 @@ jobs:
           # --target creates the tag at this commit if it doesn't exist yet.
           gh release create "$TAG" dist/* \
             --target "${GITHUB_SHA}" \
-            --title "$TAG" \
-            --notes "reTerminal D1001 person_detect firmware (ESP32-P4, MIPI-CSI SC2356).
+            --title "person_detect $TAG" \
+            --notes "person_detect $TAG — prebuilt reference image for the first
+          supported board, the Seeed reTerminal D1001 (ESP32-P4, MIPI-CSI SC2356).
+          The component itself is board/model/sensor generic; see README.
 
           Flash \`${NAME}.factory.bin\` to offset 0x0 (esptool or the ESPHome web
           flasher), then provision Wi-Fi via the \"reTerminal Presence\" AP /

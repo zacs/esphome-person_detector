@@ -2,13 +2,15 @@
 
 **On-device human presence detection for ESPHome on ESP32-P4.**
 
-A general-purpose ESPHome external component that uses a camera to detect whether
-a **person is in frame** — presence only, *not* identity — entirely on-device,
-and exposes it to Home Assistant as a `binary_sensor`. First supported target is
-the **Seeed Studio reTerminal D1001** (ESP32-P4 + MIPI-CSI SC2356), architected
-so other ESP32-P4 camera boards can be added later.
+`person_detect` is a general-purpose ESPHome external component that uses a
+camera to detect whether a **person is in frame** — presence only, *not*
+identity — entirely on-device, and exposes it to Home Assistant as a
+`binary_sensor`. Consumed via ESPHome's `external_components:` mechanism.
 
-Consumed via ESPHome's `external_components:` mechanism.
+It's built to be extended: the **detection model**, the **camera sensor**, and
+the **frame-source backend** are all pluggable (see [Extending](#extending)).
+The **Seeed Studio reTerminal D1001** (ESP32-P4 + MIPI-CSI SC2356) is simply the
+**first supported board** — not the point of the project.
 
 ---
 
@@ -44,10 +46,10 @@ Consumed via ESPHome's `external_components:` mechanism.
 | Reference board | Seeed Studio reTerminal D1001 (ESP32-P4 + MIPI-CSI **SC2356**, 2 MP) |
 | PSRAM | Required (32 MB on the D1001). Model runtime + frame buffers live here. |
 
-Other ESP32-P4 camera boards work as long as their camera is exposed through an
-ESPHome camera source; the detector is board-agnostic and only needs a
-`camera_id`. See `DESIGN.md §2/§7` for the isolated frame-source interface and
-the direct `esp_video` backend planned for sensors ESPHome does not yet support.
+The detector itself is board-agnostic — it only consumes typed frames from a
+`FrameSource`. Any ESP32-P4 MIPI-CSI board works by pointing `esp_video_camera`
+at its sensor/pins (or by feeding an ESPHome JPEG camera); see
+[Extending](#extending) to add a sensor or board.
 
 ## Toolchain / versions tested
 
@@ -298,13 +300,38 @@ low-water, last inference time, and capture-failure count.
 
 ## How it works (short)
 
-`PersonDetector` registers as a `CameraListener` on the camera referenced by
-`camera_id`, samples one frame per `interval` on a dedicated FreeRTOS task,
-decodes it (P4 hardware JPEG codec), and runs the ESP-DL `PedestrianDetect`
-model, which resizes to 224×224 using the P4's hardware image path. Results are
-marshalled back to the ESPHome main loop, where debouncing, state publishing, and
-triggers happen. See [`DESIGN.md`](DESIGN.md) for the full design, the verified
-upstream API references, the memory plan, and the open risks.
+`PersonDetector` pulls one typed RGB frame per `interval` from a `FrameSource`
+(on a dedicated low-priority FreeRTOS task), runs an ESP-DL detection model on
+it (resized to the model input via the P4's hardware image path), and marshals
+the result back to the ESPHome main loop, where debouncing, state publishing,
+and triggers happen. Frames come from a pluggable backend — `esp_video_camera`
+(raw MIPI-CSI) or an ESPHome JPEG camera. See [`DESIGN.md`](DESIGN.md) for the
+full design, verified upstream API references, memory plan, and open risks.
+
+## Extending
+
+The component is deliberately layered so contributors can add support without
+touching the core:
+
+- **Add a detection model.** Models are selectable via `model:` on
+  `person_detect`. Adding one is a row in the `MODELS` table in
+  `components/person_detect/__init__.py` plus a `case` in
+  `PersonDetector::create_model_()` — any ESP-DL detector returning
+  `dl::detect::result_t` boxes fits the existing pipeline.
+- **Add a camera sensor.** `esp_video_camera` selects the sensor via Kconfig; a
+  new MIPI-CSI sensor is a `sensor:` enum entry + its `esp_cam_sensor` Kconfig
+  in `components/esp_video_camera/__init__.py`. The capture/PPA/rotate path is
+  sensor-independent.
+- **Add a frame-source backend.** Implement `person_detect::FrameSource`
+  (`frame_source.h`) — yield typed frames (`FrameView`) and the detector
+  consumes them unchanged. This is how `esp_video_camera` (raw) and
+  `EsphomeCameraSource` (JPEG) coexist.
+- **Add a board.** A board is just a device YAML: its `esp32:` target details
+  (e.g. silicon revision, ESP-Hosted pins), its camera wiring, and a
+  `person_detect` block. The reTerminal D1001 files under `example/` and
+  `firmware/` are the first such board; others sit alongside them.
+
+Contributions for new models, sensors, and boards are welcome.
 
 ## License
 
