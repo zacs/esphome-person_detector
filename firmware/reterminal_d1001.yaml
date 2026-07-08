@@ -7,9 +7,11 @@
 #
 # Toolchain: ESPHome 2026.6.0 / ESP-IDF 5.5.4.  Target: Seeed reTerminal D1001.
 #
-# Hardware constants (expander pins, rotation, channel order) are best-known
-# values — verify on first boot per BRINGUP.md and adjust if the camera isn't
-# detected or detection is weak.
+# NOTE: this first installable omits the camera power/reset expander (its I2C bus
+# pins are board-specific and unknown here, and would collide with the ESP-Hosted
+# SDIO pins). If the camera isn't detected on boot, add the PCA9535 expander +
+# enable/powerdown/reset pins (see example/reterminal_d1001.yaml) and re-flash /
+# OTA. Verify rotation / channel order per BRINGUP.md.
 # -----------------------------------------------------------------------------
 
 esphome:
@@ -31,6 +33,22 @@ psram:
 logger:
   level: DEBUG
 
+# ESP32-P4 has no radio: Wi-Fi/BLE come from the on-board ESP32-C6 over
+# ESP-Hosted (SDIO). Pins from Seeed-Studio/reTerminal-D1001
+# examples/factory_firmware/sdkconfig.defaults (CONFIG_ESP_HOSTED_SDIO_*).
+esp32_hosted:
+  variant: ESP32C6
+  type: sdio
+  clk_pin: GPIO11
+  cmd_pin: GPIO6
+  d0_pin: GPIO7
+  d1_pin: GPIO8
+  d2_pin: GPIO9
+  d3_pin: GPIO10
+  bus_width: 4
+  reset_pin: GPIO13
+  active_high: true
+
 # Provisionable networking — no secrets required to build.
 wifi:
   ap:
@@ -48,36 +66,14 @@ external_components:
       path: ../components
     components: [person_detect, esp_video_camera]
 
-# --- Camera power expander (PCA9535 / XL9535) --------------------------------
-i2c:
-  - id: expander_bus
-    sda: GPIO8          # verify: expander I2C SDA
-    scl: GPIO7          # verify: expander I2C SCL
-    frequency: 400kHz
-
-pca9554:
-  - id: cam_expander
-    address: 0x20
-    pin_count: 16
-
 # --- MIPI-CSI capture (SC2356) ------------------------------------------------
 esp_video_camera:
   id: d1001_cam
-  sda: 37
+  sda: 37               # SC2356 SCCB (sensor I2C)
   scl: 38
   resolution: 1280x720
   rotation: 90          # portrait mount — verify direction (BRINGUP.md)
   swap_rgb: false
-  enable_pin:
-    pca9554: cam_expander
-    number: 1
-  powerdown_pin:
-    pca9554: cam_expander
-    number: 3
-  reset_pin:
-    pca9554: cam_expander
-    number: 9
-    inverted: true
 
 # --- Detector -----------------------------------------------------------------
 person_detect:
