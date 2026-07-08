@@ -90,9 +90,9 @@ esp_video_camera:
   powerdown_pin:               # PWDN = expander bit 3
     xl9535: cam_expander
     number: 3
-  reset_pin:                   # RST = expander bit 9 (active-low)
+  reset_pin:                   # RST = register bit 9 = P1.1 = xl9535 pin 11 (active-low)
     xl9535: cam_expander
-    number: 9
+    number: 11
     inverted: true
 
 # --- The detector -------------------------------------------------------------
