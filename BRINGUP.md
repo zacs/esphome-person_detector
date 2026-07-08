@@ -7,6 +7,11 @@ D1001. Work through this on first flash; each item says what to watch in the
 `DEBUG` logs and how to fix it in YAML.
 
 ## 0. Prereqs
+- **Pre-rev3 silicon (required).** The D1001's ESP32-P4 is an early stepping
+  (ROM banner `esp32p4-eco2`). The config **must** set
+  `esp32: engineering_sample: true` — without it the rev3 bootloader crashes at
+  its entry with `Guru Meditation … Illegal instruction` (PC == the loader entry
+  address) and boot-loops. This flag also drops the CPU to a safe 360 MHz.
 - `logger: level: DEBUG`, serial connected.
 - `esp_video_camera` `dump_config()` prints capture size, rotation, output dims,
   PPA buffer size. `person_detect` logs one line per inference:

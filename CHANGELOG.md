@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.1 — boot fix for pre-rev3 D1001 silicon
+
+- **Fix boot-loop / `Illegal instruction` at bootloader entry** on real D1001
+  hardware: the board ships pre-rev3 ESP32-P4 (ROM `esp32p4-eco2`), but the build
+  defaulted to rev3 production silicon. Set `esp32: engineering_sample: true` in
+  the firmware + example (selects the engineering board and a safe 360 MHz CPU).
+
 ## v0.1.0 — first installable D1001 build
 
 On-device human presence detection for ESP32-P4, exposed to Home Assistant as an

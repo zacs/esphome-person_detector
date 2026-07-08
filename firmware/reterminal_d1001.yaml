@@ -20,6 +20,10 @@ esphome:
 
 esp32:
   variant: ESP32P4
+  # The reTerminal D1001 ships pre-rev3 P4 silicon (ROM reports "esp32p4-eco2").
+  # Required, or the rev3 bootloader crashes at entry with an illegal
+  # instruction. This also defaults the CPU to a safe 360 MHz (not 400 MHz).
+  engineering_sample: true
   flash_size: 16MB
   partitions: partitions.csv
   framework:

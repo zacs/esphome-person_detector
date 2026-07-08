@@ -16,6 +16,9 @@ esphome:
 
 esp32:
   variant: ESP32P4
+  # D1001 ships pre-rev3 P4 silicon (ROM "esp32p4-eco2"); required or the rev3
+  # bootloader crashes at entry. Also defaults CPU to a safe 360 MHz.
+  engineering_sample: true
   flash_size: 16MB
   partitions: partitions.csv   # ~2 MB app image (embedded model) — see README
   framework:
