@@ -4,12 +4,12 @@
 #include "esphome/core/log.h"
 
 #include <cerrno>
+#include <cinttypes>
 #include <cstring>
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/select.h>
 #include <unistd.h>
 
 #include "linux/videodev2.h"
@@ -18,6 +18,9 @@
 #ifndef MAP_FAILED
 #define MAP_FAILED (reinterpret_cast<void *>(-1))
 #endif
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -109,7 +112,11 @@ bool EspVideoCamera::power_on_sensor_() {
 }
 
 bool EspVideoCamera::open_and_configure_() {
-  this->fd_ = open(VIDEO_DEVICE, O_RDWR);
+  // Non-blocking so acquire() can bound its wait with a DQBUF poll loop.
+  // esp_video's V4L2 devices don't hook ESP-IDF's VFS select()/poll(), so a
+  // select()-gated DQBUF never wakes (the canonical capture_stream example uses
+  // a plain blocking DQBUF for exactly this reason).
+  this->fd_ = open(VIDEO_DEVICE, O_RDWR | O_NONBLOCK);
   if (this->fd_ < 0) {
     ESP_LOGE(TAG, "open(%s) failed: %s", VIDEO_DEVICE, strerror(errno));
     ESP_LOGE(TAG, "  esp_video_init returned OK but registered no capture device "
@@ -131,9 +138,15 @@ bool EspVideoCamera::open_and_configure_() {
     ESP_LOGE(TAG, "VIDIOC_S_FMT failed: %s", strerror(errno));
     return false;
   }
-  // The driver may adjust the geometry; honor what it gave us.
+  // The driver may adjust the geometry/format; honor what it gave us and flag a
+  // format it couldn't satisfy (the PPA pass below assumes RGB565 input).
   this->cap_w_ = fmt.fmt.pix.width;
   this->cap_h_ = fmt.fmt.pix.height;
+  if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_RGB565) {
+    ESP_LOGW(TAG, "Requested RGB565 but driver set pixelformat 0x%08" PRIx32
+                  " (%ux%u) — capture may not match PPA input",
+             (uint32_t) fmt.fmt.pix.pixelformat, this->cap_w_, this->cap_h_);
+  }
 
   struct v4l2_requestbuffers req = {};
   req.count = this->fb_count_;
@@ -229,22 +242,22 @@ bool EspVideoCamera::acquire(person_detect::FrameView &out, uint32_t timeout_ms)
   if (!this->streaming_)
     return false;
 
-  fd_set fds;
-  FD_ZERO(&fds);
-  FD_SET(this->fd_, &fds);
-  struct timeval tv;
-  tv.tv_sec = timeout_ms / 1000;
-  tv.tv_usec = (timeout_ms % 1000) * 1000;
-  int r = select(this->fd_ + 1, &fds, nullptr, nullptr, &tv);
-  if (r <= 0) {
-    this->capture_failures_++;
-    return false;
-  }
-
+  // The fd is non-blocking (esp_video doesn't support select/poll), so poll
+  // DQBUF until a filled buffer is ready or the timeout elapses. At 30 fps a
+  // frame lands within ~33 ms; the short vTaskDelay yields to other tasks.
   struct v4l2_buffer buf = {};
   buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   buf.memory = V4L2_MEMORY_MMAP;
-  if (xioctl(this->fd_, VIDIOC_DQBUF, &buf) != 0) {
+  const int64_t deadline_us = esp_timer_get_time() + (int64_t) timeout_ms * 1000;
+  int rc;
+  while ((rc = xioctl(this->fd_, VIDIOC_DQBUF, &buf)) != 0 && errno == EAGAIN) {
+    if (esp_timer_get_time() >= deadline_us) {
+      this->capture_failures_++;
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(2));
+  }
+  if (rc != 0) {
     ESP_LOGW(TAG, "VIDIOC_DQBUF failed: %s", strerror(errno));
     this->capture_failures_++;
     return false;

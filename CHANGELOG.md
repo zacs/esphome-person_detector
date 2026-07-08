@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.7 — capture frames with a blocking DQBUF (no select/poll)
+
+v0.1.6 detected the SC202CS, opened `/dev/video0`, and started streaming, but
+every capture timed out: `esp_video`'s V4L2 devices don't register ESP-IDF's VFS
+`select()`/`poll()` hooks, so the `select()`-gated `DQBUF` in `acquire()` never
+saw the fd become readable and always hit the timeout — even though frames were
+being produced. (Espressif's own `capture_stream` example uses a plain blocking
+`DQBUF` for exactly this reason.)
+
+- Open the device **non-blocking** and poll `VIDIOC_DQBUF` (EAGAIN → short
+  `vTaskDelay`) until a filled buffer is ready or the timeout elapses. Drops the
+  `select()` path entirely.
+- Warn if the driver couldn't honor the requested RGB565 capture format (the PPA
+  rotate/convert pass assumes RGB565 input).
+
 ## v0.1.6 — correct sensor driver (SC202CS) + current esp_video
 
 v0.1.5 put the SCCB on its own controller but the SC2356 still wasn't detected:
