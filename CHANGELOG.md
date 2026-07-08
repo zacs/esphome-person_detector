@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.1.6 — correct sensor driver (SC202CS) + current esp_video
+
+v0.1.5 put the SCCB on its own controller but the SC2356 still wasn't detected:
+`esp_video_init` returned OK, logged nothing, and created no `/dev/video0`. Root
+cause was the sensor driver never being compiled/registered — two version issues,
+verified against `espressif/esp-video-components` rather than guessed:
+
+- **Driver rename.** esp_cam_sensor renamed this part **SC2356 → SC202CS** (same
+  die). Our `CONFIG_CAMERA_SC2356*` keys didn't exist in the resolved driver, and
+  ESP-IDF silently ignores unknown sdkconfig keys, so no sensor driver was built.
+  Now sets `CONFIG_CAMERA_SC202CS` + the `SC202CS` RAW8 1280×720 default-format.
+- **Auto-detect.** `esp_video_init` only probes sensors whose auto-detect fn is
+  registered — now enables `CONFIG_CAMERA_SC202CS_AUTO_DETECT_MIPI_INTERFACE_SENSOR`.
+- **Bumped `espressif/esp_video` 0.9.0 → 2.2.0.** The old pin predated ESP-IDF
+  5.5.4 (what ESPHome 2026.6 uses) and the SC202CS naming. The `esp_video_init`
+  CSI/SCCB API is unchanged across the bump, so no component C++ changed.
+- Also enables `CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE` (the ISP pipeline
+  controller, which demosaics the sensor's RAW8 Bayer to RGB, depends on it).
+
 ## v0.1.5 — camera SCCB on its own I2C controller (sensor now detectable)
 
 First hardware boot of v0.1.4 got the whole ESPHome app up (Wi-Fi AP, xl9535,

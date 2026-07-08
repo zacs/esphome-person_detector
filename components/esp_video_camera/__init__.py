@@ -35,9 +35,11 @@ EspVideoCamera = esp_video_camera_ns.class_(
 )
 
 # esp_video (pulls esp_cam_sensor / esp_cam_ctlr / esp_driver_isp transitively).
-# Pin for reproducibility; bump if the esp_video_init API changes.
+# Pin for reproducibility; bump if the esp_video_init API changes. 2.x tracks
+# current ESP-IDF (5.5.x) and ships the SC202CS driver; the old 0.9.0 pin bundled
+# an esp_cam_sensor that still used the SC2356 name and predates IDF 5.5.4.
 ESP_VIDEO_COMPONENT = "espressif/esp_video"
-ESP_VIDEO_REF = "0.9.0"
+ESP_VIDEO_REF = "2.2.0"
 
 CONF_POWERDOWN_PIN = "powerdown_pin"
 CONF_ENABLE_PIN = "enable_pin"
@@ -46,13 +48,19 @@ CONF_SENSOR = "sensor"
 CONF_SWAP_RGB = "swap_rgb"
 CONF_FRAME_BUFFER_COUNT = "frame_buffer_count"
 
+# The reTerminal D1001's camera is marketed as "SC2356"; the esp_cam_sensor
+# driver for that part is named SC202CS (SC2356 is the same die).
 SENSOR_SC2356 = "sc2356"
 
-# resolution -> (width, height, esp_cam_sensor Kconfig mode option).
-# Only modes with a known esp_cam_sensor Kconfig are offered (source: Seeed
-# reTerminal-D1001 factory_firmware sdkconfig.defaults).
+# resolution -> (width, height, esp_cam_sensor default-format Kconfig choice).
+# The SC202CS RAW8 1280x720@30 mode is the sensor driver's default; we select it
+# explicitly so the capture geometry is deterministic.
 RESOLUTIONS = {
-    "1280x720": (1280, 720, "CONFIG_CAMERA_SC2356_MIPI_RAW8_1280X720_30FPS"),
+    "1280x720": (
+        1280,
+        720,
+        "CONFIG_CAMERA_SC202CS_MIPI_DEFAULT_FMT_RAW8_1280X720_30FPS",
+    ),
 }
 
 ROTATIONS = [0, 90, 180, 270]
@@ -116,13 +124,23 @@ async def to_code(config):
     cg.add(var.set_frame_buffer_count(config[CONF_FRAME_BUFFER_COUNT]))
 
     # esp_video managed component + build-time selection of the CSI/ISP path and
-    # the SC2356 sensor. Sources for the sensor Kconfig names:
-    #   Seeed-Studio/reTerminal-D1001 examples/factory_firmware/sdkconfig.defaults
+    # the sensor. Kconfig symbol names verified against espressif/esp-video-components
+    # (esp_video/Kconfig and esp_cam_sensor/sensors/sc202cs/Kconfig.sc202cs).
     add_idf_component(name=ESP_VIDEO_COMPONENT, ref=ESP_VIDEO_REF)
+    # MIPI-CSI + ISP video devices default to y on the P4, but the ISP *pipeline
+    # controller* — needed to demosaic the sensor's RAW8 Bayer output into RGB —
+    # does not, so enable it (and the ISP device it depends on) explicitly.
     add_idf_sdkconfig_option("CONFIG_ESP_VIDEO_ENABLE_MIPI_CSI_VIDEO_DEVICE", True)
+    add_idf_sdkconfig_option("CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE", True)
     add_idf_sdkconfig_option("CONFIG_ESP_VIDEO_ENABLE_ISP_PIPELINE_CONTROLLER", True)
     if config[CONF_SENSOR] == SENSOR_SC2356:
-        add_idf_sdkconfig_option("CONFIG_CAMERA_SC2356", True)
+        # Enable the SC202CS driver AND its MIPI auto-detect: esp_video_init only
+        # probes sensors whose auto-detect fn is registered, so without this no
+        # sensor is found and no /dev/video0 is created (the v0.1.5 failure).
+        add_idf_sdkconfig_option("CONFIG_CAMERA_SC202CS", True)
+        add_idf_sdkconfig_option(
+            "CONFIG_CAMERA_SC202CS_AUTO_DETECT_MIPI_INTERFACE_SENSOR", True
+        )
         add_idf_sdkconfig_option(mode_kconfig, True)
 
     cg.add_define("USE_ESP_VIDEO_CAMERA")
