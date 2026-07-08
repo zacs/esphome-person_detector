@@ -10,10 +10,10 @@ esphome:
 
 esp32:
   variant: ESP32P4
+  # flash_size: 16MB lets ESPHome auto-size a partition table with an app slot
+  # large enough for the ~2 MB image (embedded pedestrian model) — no custom
+  # partitions.csv needed (matches the firmware/example configs).
   flash_size: 16MB
-  # The embedded pedestrian model makes the app image ~2 MB, over the default
-  # ~1.75 MB app partition — use a table with a large app partition.
-  partitions: partitions.csv
   framework:
     type: esp-idf
     version: 5.5.4
