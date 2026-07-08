@@ -95,8 +95,7 @@ external_components:
 ```yaml
 esp32:
   variant: ESP32P4          # ESP32-P4 only (v1)
-  flash_size: 16MB
-  partitions: partitions.csv # app image is ~2 MB — needs a big app partition
+  flash_size: 16MB          # lets ESPHome size the app partition for the ~2.3 MB image
   framework:
     type: esp-idf           # ESP-IDF only (no Arduino on P4)
     version: 5.5.4
@@ -106,9 +105,9 @@ psram:                      # required — model runtime + frame buffers live he
   speed: 200MHz
 ```
 
-Copy [`example/partitions.csv`](example/partitions.csv) next to your config (see
-[Memory / flash budget](#memory--flash-budget) for why it's required). If your
-device already defines a partition table, widen an app slot to ≥ ~3 MB instead.
+The embedded model makes the app image ~2.3 MB, so `flash_size: 16MB` is
+required — with it, ESPHome generates an app partition large enough (no custom
+partition CSV needed). See [Memory / flash budget](#memory--flash-budget).
 
 ### 3. Give it a frame source and wire up the detector
 
@@ -240,16 +239,15 @@ pedestrian model):
 | Static RAM total | 5.8 % of 512 KB |
 | PPA / capture / tensor-arena buffers | **PSRAM, allocated at runtime** (not in the image) |
 
-**Flash / partition table (required).** The pedestrian model is embedded in the
-app image (flash rodata), so the linked binary is **~2.3 MB** — over ESPHome's
-default ~1.75 MB app partition. You **must** use a partition table with a larger
-app partition. The example ships one (`example/partitions.csv`, 6 MB OTA slots on
-16 MB flash) wired via:
+**Flash (required: `flash_size: 16MB`).** The pedestrian model is embedded in the
+app image (flash rodata), so the linked binary is **~2.3 MB**. Set
+`flash_size: 16MB` and ESPHome sizes the app partition to fit — no custom
+partition CSV needed (and letting ESPHome own the table keeps the factory image
+and the partition offsets consistent):
 
 ```yaml
 esp32:
   flash_size: 16MB
-  partitions: partitions.csv
 ```
 
 The PSRAM figures depend on capture resolution/rotation and can only be read on

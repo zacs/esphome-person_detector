@@ -1,17 +1,13 @@
 # -----------------------------------------------------------------------------
-# Installable D1001 firmware — built by CI into a flashable firmware.factory.bin
-# (see .github/workflows/firmware.yml). Self-contained: local components, and
-# Wi-Fi provisioning via AP + captive portal / Improv, so NO secrets are needed
-# to build. Flash it, then join the "reTerminal Presence" AP (or use Improv over
-# USB / the web flasher) to set your Wi-Fi.
+# Installable person_detect firmware for the Seeed reTerminal D1001 (ESP32-P4).
+# Built by CI into a flashable firmware.factory.bin (see firmware.yml).
 #
-# Toolchain: ESPHome 2026.6.0 / ESP-IDF 5.5.4.  Target: Seeed reTerminal D1001.
-#
-# NOTE: this first installable omits the camera power/reset expander (its I2C bus
-# pins are board-specific and unknown here, and would collide with the ESP-Hosted
-# SDIO pins). If the camera isn't detected on boot, add the PCA9535 expander +
-# enable/powerdown/reset pins (see example/reterminal_d1001.yaml) and re-flash /
-# OTA. Verify rotation / channel order per BRINGUP.md.
+# The board bring-up (esp32/psram/esp32_hosted/i2c/xl9535) mirrors the known-good
+# reTerminal D1001 config from github.com/zacs/espcontrol
+# (devices/seeed-esp32-p4-reterminal-d1001/device/device.yaml) rather than being
+# derived by hand. Self-contained + provisionable: Wi-Fi AP + captive portal /
+# Improv, no secrets needed to build. Flash, then join the AP / Improv to set
+# Wi-Fi. Camera bring-up per BRINGUP.md.
 # -----------------------------------------------------------------------------
 
 esphome:
@@ -19,16 +15,26 @@ esphome:
   friendly_name: reTerminal Presence
 
 esp32:
-  variant: ESP32P4
-  # The reTerminal D1001 ships pre-rev3 P4 silicon (ROM reports "esp32p4-eco2").
-  # Required, or the rev3 bootloader crashes at entry with an illegal
-  # instruction. This also defaults the CPU to a safe 360 MHz (not 400 MHz).
-  engineering_sample: true
+  variant: esp32p4
   flash_size: 16MB
-  partitions: partitions.csv
+  cpu_frequency: 360MHZ
+  # D1001 ships pre-rev3 P4 silicon (ROM "esp32p4-eco2").
+  engineering_sample: true
   framework:
     type: esp-idf
     version: 5.5.4
+    advanced:
+      enable_idf_experimental_features: true
+      execute_from_psram: true
+    sdkconfig_options:
+      CONFIG_SDMMC_HOST_DEFAULT: "y"
+      CONFIG_COMPILER_OPTIMIZATION_SIZE: "y"
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "8192"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+      CONFIG_ESP_HOSTED_DFLT_TASK_FROM_SPIRAM: "y"
+  # No custom partition table: flash_size: 16MB lets ESPHome generate a
+  # self-consistent table + matching factory image (avoids offset mismatches).
 
 psram:
   mode: hex
@@ -37,21 +43,18 @@ psram:
 logger:
   level: DEBUG
 
-# ESP32-P4 has no radio: Wi-Fi/BLE come from the on-board ESP32-C6 over
-# ESP-Hosted (SDIO). Pins from Seeed-Studio/reTerminal-D1001
-# examples/factory_firmware/sdkconfig.defaults (CONFIG_ESP_HOSTED_SDIO_*).
+# Wi-Fi/BLE come from the on-board ESP32-C6 over ESP-Hosted (SDIO).
 esp32_hosted:
-  variant: ESP32C6
-  type: sdio
-  clk_pin: GPIO11
+  variant: esp32c6
+  reset_pin: GPIO13
   cmd_pin: GPIO6
+  clk_pin: GPIO11
   d0_pin: GPIO7
   d1_pin: GPIO8
   d2_pin: GPIO9
   d3_pin: GPIO10
-  bus_width: 4
-  reset_pin: GPIO13
   active_high: true
+  sdio_frequency: 20MHz
 
 # Provisionable networking — no secrets required to build.
 wifi:
@@ -70,6 +73,18 @@ external_components:
       path: ../components
     components: [person_detect, esp_video_camera]
 
+# Camera power/reset lines are on the XL9535 I2C GPIO expander (its own bus).
+i2c:
+  - id: bus_expander
+    sda: GPIO20
+    scl: GPIO21
+    frequency: 400kHz
+
+xl9535:
+  - id: cam_expander
+    i2c_id: bus_expander
+    address: 0x20
+
 # --- MIPI-CSI capture (SC2356) ------------------------------------------------
 esp_video_camera:
   id: d1001_cam
@@ -78,6 +93,16 @@ esp_video_camera:
   resolution: 1280x720
   rotation: 90          # portrait mount — verify direction (BRINGUP.md)
   swap_rgb: false
+  enable_pin:           # CAM_EN = expander bit 1
+    xl9535: cam_expander
+    number: 1
+  powerdown_pin:        # PWDN = expander bit 3
+    xl9535: cam_expander
+    number: 3
+  reset_pin:            # RST = expander bit 9 (active-low)
+    xl9535: cam_expander
+    number: 9
+    inverted: true
 
 # --- Detector -----------------------------------------------------------------
 person_detect:

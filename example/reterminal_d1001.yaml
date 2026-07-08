@@ -1,13 +1,11 @@
 # -----------------------------------------------------------------------------
-# person_detect — full working example for the Seeed Studio reTerminal D1001
-# (ESP32-P4 + MIPI-CSI SC2356 2 MP camera), using the on-board esp_video_camera
-# capture backend (CSI + ISP + PPA -> RGB888). On-device only; no frame leaves.
+# person_detect — reference config for the Seeed reTerminal D1001 (ESP32-P4 +
+# MIPI-CSI SC2356). On-device only; no frame leaves the device.
 #
-# Tested toolchain: ESPHome 2026.6.0 (ESP-IDF v5.5.4).
-# Compile:  esphome compile example/reterminal_d1001.yaml
-#
-# HARDWARE BRING-UP: pins/rotation/channel-order below are the best-known values
-# for the D1001; verify against your board on first flash. See BRINGUP.md.
+# The board bring-up (esp32/psram/esp32_hosted/i2c/xl9535) mirrors the known-good
+# reTerminal D1001 config from github.com/zacs/espcontrol. Tested toolchain:
+# ESPHome 2026.6.0 (ESP-IDF v5.5.4). Verify camera bring-up on first flash
+# (BRINGUP.md). For a prebuilt, flashable image see the GitHub Releases.
 # -----------------------------------------------------------------------------
 
 esphome:
@@ -15,23 +13,45 @@ esphome:
   friendly_name: reTerminal Presence
 
 esp32:
-  variant: ESP32P4
-  # D1001 ships pre-rev3 P4 silicon (ROM "esp32p4-eco2"); required or the rev3
-  # bootloader crashes at entry. Also defaults CPU to a safe 360 MHz.
-  engineering_sample: true
+  variant: esp32p4
   flash_size: 16MB
-  partitions: partitions.csv   # ~2 MB app image (embedded model) — see README
+  cpu_frequency: 360MHZ
+  engineering_sample: true     # D1001 is pre-rev3 P4 (ROM "esp32p4-eco2")
   framework:
     type: esp-idf
     version: 5.5.4
+    advanced:
+      enable_idf_experimental_features: true
+      execute_from_psram: true
+    sdkconfig_options:
+      CONFIG_SDMMC_HOST_DEFAULT: "y"
+      CONFIG_COMPILER_OPTIMIZATION_SIZE: "y"
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "8192"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+      CONFIG_ESP_HOSTED_DFLT_TASK_FROM_SPIRAM: "y"
+  # No custom partition table: flash_size: 16MB → ESPHome auto-sizes a
+  # self-consistent table + factory image (the ~2.3 MB app fits with room).
 
-# Model runtime, capture buffers, and the PPA output frame all live in PSRAM.
 psram:
   mode: hex
   speed: 200MHz
 
 logger:
-  level: DEBUG                 # inference time / arena / PPA timing at DEBUG
+  level: DEBUG
+
+# Wi-Fi/BLE via the on-board ESP32-C6 over ESP-Hosted (SDIO).
+esp32_hosted:
+  variant: esp32c6
+  reset_pin: GPIO13
+  cmd_pin: GPIO6
+  clk_pin: GPIO11
+  d0_pin: GPIO7
+  d1_pin: GPIO8
+  d2_pin: GPIO9
+  d3_pin: GPIO10
+  active_high: true
+  sdio_frequency: 20MHz
 
 api:
 ota:
@@ -44,20 +64,17 @@ external_components:
   - source: github://zacs/esphome-person_detector
     components: [person_detect, esp_video_camera]
 
-# --- I2C GPIO expander (PCA9535 / XL9535) that carries the camera power lines --
-# Source for the control-line mapping (PWDN=bit3, CAM_EN=bit1, RST=bit9):
-# task/board notes for the reTerminal D1001. Set the expander's I2C bus pins and
-# address to your board; verify on hardware.
+# Camera power/reset lines are on the XL9535 I2C GPIO expander (its own bus).
 i2c:
-  - id: expander_bus
-    sda: GPIO8                 # <-- verify: expander I2C SDA
-    scl: GPIO7                 # <-- verify: expander I2C SCL
+  - id: bus_expander
+    sda: GPIO20
+    scl: GPIO21
     frequency: 400kHz
 
-pca9554:
+xl9535:
   - id: cam_expander
+    i2c_id: bus_expander
     address: 0x20
-    pin_count: 16              # PCA9535/XL9535 = 16-bit
 
 # --- MIPI-CSI camera capture (SC2356) -----------------------------------------
 esp_video_camera:
@@ -65,23 +82,23 @@ esp_video_camera:
   sda: 37                      # SC2356 SCCB (sensor I2C)
   scl: 38
   resolution: 1280x720
-  rotation: 90                 # portrait mounting — verify direction on hardware
-  swap_rgb: false              # flip if detections are poor / colors look wrong
+  rotation: 90                 # portrait mount — verify direction on hardware
+  swap_rgb: false
   enable_pin:                  # CAM_EN = expander bit 1
-    pca9554: cam_expander
+    xl9535: cam_expander
     number: 1
-  powerdown_pin:               # PWDN = expander bit 3 (active-high power-down)
-    pca9554: cam_expander
+  powerdown_pin:               # PWDN = expander bit 3
+    xl9535: cam_expander
     number: 3
   reset_pin:                   # RST = expander bit 9 (active-low)
-    pca9554: cam_expander
+    xl9535: cam_expander
     number: 9
     inverted: true
 
 # --- The detector -------------------------------------------------------------
 person_detect:
   id: presence
-  frame_source_id: d1001_cam   # raw RGB backend (not camera_id)
+  frame_source_id: d1001_cam
   interval: 1500ms
   confidence_threshold: 60%
   clear_after: 3
@@ -111,4 +128,4 @@ sensor:
 switch:
   - platform: person_detect
     person_detect_id: presence
-    name: "Presence Detection"   # privacy toggle: off => camera idle
+    name: "Presence Detection"

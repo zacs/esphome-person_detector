@@ -1,9 +1,0 @@
-# ESP32-P4 partition table for person_detect.
-# The pedestrian model is embedded in the app image (flash rodata), pushing it
-# past the default ~1.75 MB app partition, so we give the app partition room.
-# 16 MB flash (matches the reTerminal D1001).
-# Name,     Type, SubType,  Offset,   Size
-nvs,        data, nvs,      0x9000,   0x6000
-phy_init,   data, phy,      0xf000,   0x1000
-factory,    app,  factory,  0x10000,  0x800000
-storage,    data, spiffs,   0x810000, 0x7f0000

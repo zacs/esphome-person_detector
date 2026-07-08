@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.1.3 — adopt canonical reTerminal D1001 board config
+
+Replace hand-derived board bring-up with the known-good reTerminal D1001 config
+from [zacs/espcontrol](https://github.com/zacs/espcontrol)
+(`devices/seeed-esp32-p4-reterminal-d1001/device/device.yaml`), fixing several
+guessed values at once:
+
+- `cpu_frequency: 360MHZ`, and framework `advanced: execute_from_psram: true` +
+  experimental features + PSRAM/hosted sdkconfig (`ESP_HOSTED_DFLT_TASK_FROM_SPIRAM`,
+  `MBEDTLS_EXTERNAL_MEM_ALLOC`, `SDMMC_HOST_DEFAULT`, 60 s task WDT).
+- `esp32_hosted: sdio_frequency: 20MHz`.
+- Camera power/reset expander corrected to **`xl9535` @ 0x20 on I2C GPIO20/GPIO21**
+  (was a guessed `pca9554` on pins that collided with the ESP-Hosted SDIO bus).
+- **Drop the custom partition CSV** — `flash_size: 16MB` lets ESPHome generate a
+  self-consistent table + factory image (removes the offset class of bug in v0.1.2).
+
+All device-config; no component code changed.
+
 ## v0.1.2 — partition-offset fix (no bootable app)
 
 - **Fix `No bootable app partitions` / `invalid magic byte` on boot.** The

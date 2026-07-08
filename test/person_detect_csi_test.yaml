@@ -8,8 +8,7 @@ esphome:
 
 esp32:
   variant: ESP32P4
-  flash_size: 16MB
-  partitions: partitions.csv
+  flash_size: 16MB       # ESPHome auto-sizes the partition table (no custom CSV)
   framework:
     type: esp-idf
     version: 5.5.4
