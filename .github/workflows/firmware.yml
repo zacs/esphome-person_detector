@@ -1,0 +1,69 @@
+name: Firmware
+
+# Builds an installable ESP32-P4 image for the reTerminal D1001 and publishes it.
+# - workflow_dispatch: build + attach the binaries as run artifacts (download &
+#   flash from the Actions run).
+# - push of a version tag (v*): build + create a GitHub Release with the binaries
+#   attached, giving a traceable version -> commit -> firmware chain.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  ESPHOME_VERSION: "2026.6.0"
+  CONFIG: firmware/reterminal_d1001.yaml
+  NAME: reterminal-presence
+
+jobs:
+  build:
+    name: Build D1001 firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache PlatformIO / ESP-IDF
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-fw-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-${{ hashFiles('firmware/reterminal_d1001.yaml') }}
+          restore-keys: pio-fw-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-
+      - name: Install ESPHome
+        run: pip install "esphome==${ESPHOME_VERSION}"
+      - name: Compile
+        run: esphome compile "${CONFIG}"
+      - name: Collect binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          factory=$(find firmware/.esphome/build -name firmware.factory.bin | head -1)
+          ota=$(find firmware/.esphome/build -name firmware.ota.bin | head -1)
+          cp "$factory" "dist/${NAME}.factory.bin"
+          cp "$ota" "dist/${NAME}.ota.bin"
+          ls -l dist
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}-firmware
+          path: dist/*
+          if-no-files-found: error
+      - name: Publish release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "reTerminal D1001 person_detect firmware (ESP32-P4, MIPI-CSI SC2356).
+
+          Flash \`${NAME}.factory.bin\` to offset 0x0 (esptool or the ESPHome web
+          flasher), then provision Wi-Fi via the \"reTerminal Presence\" AP /
+          captive portal or Improv over USB. Verify camera bring-up per BRINGUP.md."

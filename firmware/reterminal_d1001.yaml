@@ -1,0 +1,110 @@
+# -----------------------------------------------------------------------------
+# Installable D1001 firmware — built by CI into a flashable firmware.factory.bin
+# (see .github/workflows/firmware.yml). Self-contained: local components, and
+# Wi-Fi provisioning via AP + captive portal / Improv, so NO secrets are needed
+# to build. Flash it, then join the "reTerminal Presence" AP (or use Improv over
+# USB / the web flasher) to set your Wi-Fi.
+#
+# Toolchain: ESPHome 2026.6.0 / ESP-IDF 5.5.4.  Target: Seeed reTerminal D1001.
+#
+# Hardware constants (expander pins, rotation, channel order) are best-known
+# values — verify on first boot per BRINGUP.md and adjust if the camera isn't
+# detected or detection is weak.
+# -----------------------------------------------------------------------------
+
+esphome:
+  name: reterminal-presence
+  friendly_name: reTerminal Presence
+
+esp32:
+  variant: ESP32P4
+  flash_size: 16MB
+  partitions: partitions.csv
+  framework:
+    type: esp-idf
+    version: 5.5.4
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+logger:
+  level: DEBUG
+
+# Provisionable networking — no secrets required to build.
+wifi:
+  ap:
+    ssid: "reTerminal Presence"
+captive_portal:
+improv_serial:
+
+api:
+ota:
+  platform: esphome
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [person_detect, esp_video_camera]
+
+# --- Camera power expander (PCA9535 / XL9535) --------------------------------
+i2c:
+  - id: expander_bus
+    sda: GPIO8          # verify: expander I2C SDA
+    scl: GPIO7          # verify: expander I2C SCL
+    frequency: 400kHz
+
+pca9554:
+  - id: cam_expander
+    address: 0x20
+    pin_count: 16
+
+# --- MIPI-CSI capture (SC2356) ------------------------------------------------
+esp_video_camera:
+  id: d1001_cam
+  sda: 37
+  scl: 38
+  resolution: 1280x720
+  rotation: 90          # portrait mount — verify direction (BRINGUP.md)
+  swap_rgb: false
+  enable_pin:
+    pca9554: cam_expander
+    number: 1
+  powerdown_pin:
+    pca9554: cam_expander
+    number: 3
+  reset_pin:
+    pca9554: cam_expander
+    number: 9
+    inverted: true
+
+# --- Detector -----------------------------------------------------------------
+person_detect:
+  id: presence
+  frame_source_id: d1001_cam
+  interval: 1500ms
+  confidence_threshold: 60%
+  clear_after: 3
+
+binary_sensor:
+  - platform: person_detect
+    person_detect_id: presence
+    name: "Room Occupied"
+    filters:
+      - delayed_off: 15s
+
+sensor:
+  - platform: person_detect
+    person_detect_id: presence
+    type: confidence
+    name: "Presence Confidence"
+  - platform: person_detect
+    person_detect_id: presence
+    type: count
+    name: "People Count"
+
+switch:
+  - platform: person_detect
+    person_detect_id: presence
+    name: "Presence Detection"
