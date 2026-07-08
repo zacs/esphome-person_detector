@@ -146,6 +146,28 @@ void PersonDetector::run_inference_(const FrameView &frame) {
       break;
   }
 
+  // Frame-content sanity probe: subsample the buffer so a blank/black frame (ISP
+  // not exposing the RAW sensor) is distinguishable from a valid image in which
+  // the model simply found no person. Cheap (~a few thousand byte reads).
+  uint32_t px_sum = 0;
+  uint8_t px_min = 255, px_max = 0;
+  {
+    size_t bytes_per_px = (frame.format == FRAME_FORMAT_RGB888) ? 3
+                          : (frame.format == FRAME_FORMAT_RGB565) ? 2
+                                                                  : 1;
+    size_t nbytes = static_cast<size_t>(frame.width) * frame.height * bytes_per_px;
+    size_t step = nbytes > 4096 ? nbytes / 4096 : 1;
+    size_t samples = 0;
+    for (size_t i = 0; i < nbytes; i += step) {
+      uint8_t v = frame.data[i];
+      px_sum += v;
+      if (v < px_min) px_min = v;
+      if (v > px_max) px_max = v;
+      samples++;
+    }
+    px_sum = samples ? px_sum / samples : 0;  // reuse as mean
+  }
+
   uint32_t t0 = millis();
   // ESP-DL resizes the frame to the model's 224x224 input internally; on P4 that
   // resize/color-convert is hardware-accelerated (PPA / 2D-DMA) inside dl::image.
@@ -167,9 +189,11 @@ void PersonDetector::run_inference_(const FrameView &frame) {
     this->psram_free_low_ = psram;
 
   ESP_LOGD(TAG,
-           "inference %ums: %ux%u boxes=%u best=%.2f present=%d psram_free=%u",
+           "inference %ums: %ux%u boxes=%u best=%.2f present=%d "
+           "frame[min=%u max=%u mean=%u] psram_free=%u",
            (unsigned) dt, frame.width, frame.height, (unsigned) results.size(),
-           best, person, (unsigned) psram);
+           best, person, (unsigned) px_min, (unsigned) px_max, (unsigned) px_sum,
+           (unsigned) psram);
 
   xSemaphoreTake(this->result_mutex_, portMAX_DELAY);
   this->last_infer_ms_ = dt;

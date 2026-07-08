@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.8 — frame-content probe (diagnose blank vs valid frames)
+
+v0.1.7 got the pipeline fully running — frames captured, PPA rotate, inference
+at ~76 ms — but detection was always `boxes=0 best=0.00`, which typically means
+the analyzed frame is blank rather than "no person present." Add a cheap
+min/max/mean subsample of each frame to the inference log so a black frame (ISP
+not exposing the RAW sensor) is distinguishable from a valid image the model
+found no person in. Diagnostic only; no behavior change.
+
 ## v0.1.7 — capture frames with a blocking DQBUF (no select/poll)
 
 v0.1.6 detected the SC202CS, opened `/dev/video0`, and started streaming, but
