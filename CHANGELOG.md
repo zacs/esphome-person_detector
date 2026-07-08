@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.4 — camera pinout verified against the D1001 schematic
+
+Cross-checked the camera wiring against the official reTerminal D1001 schematic
+(Seeed, KiCad `LCD_CAM` sheet) instead of trusting derived values:
+
+- **Confirmed:** SCCB on **GPIO37 (SDA) / GPIO38 (SCL)** (shared peripheral I2C,
+  camera addr 0x10); expander controls **CAM_EN=EXP_GPO1 (xl9535 pin 1),
+  CAM_PWDN=EXP_GPO3 (pin 3), CAM_RST=EXP_GPO9=P1.1 (pin 11)**; MCLK is a board
+  24 MHz source (no xclk driven by the SoC).
+- **Fix:** the reset line is active-low at the sensor and the driver pulses the
+  expander pin low→high to release, so the expander pin must **not** be
+  `inverted:` — removing it (v0.1.3 would have held the sensor in reset).
+
 ## v0.1.3 — adopt canonical reTerminal D1001 board config
 
 Replace hand-derived board bring-up with the known-good reTerminal D1001 config
