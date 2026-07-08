@@ -1,10 +1,13 @@
-# ESP32-P4 / 16 MB flash partition table for the reTerminal D1001.
-# The pedestrian model is embedded in the app image (flash rodata), so each app
-# slot is enlarged well past the default ~1.75 MB. Dual OTA slots for updates.
+# ESP32-P4 / 16 MB flash, two-OTA layout for person_detect.
+# The first app slot MUST start at 0x10000: ESPHome's factory image writes the
+# app there, so the app partition offset has to match or the bootloader finds an
+# empty slot ("invalid magic byte / nothing flashed here"). Mirrors ESP-IDF's
+# standard two-OTA layout (nvs, otadata, phy_init before the app), with 6 MB app
+# slots to fit the ~2.3 MB image (embedded model).
 # Name,     Type, SubType,  Offset,    Size
-nvs,        data, nvs,      0x9000,    0x5000
-otadata,    data, ota,      0xe000,    0x2000
-phy_init,   data, phy,      0x10000,   0x1000
-ota_0,      app,  ota_0,    0x20000,   0x600000
-ota_1,      app,  ota_1,    0x620000,  0x600000
-storage,    data, spiffs,   0xc20000,  0x3e0000
+nvs,        data, nvs,      0x9000,    0x4000
+otadata,    data, ota,      0xd000,    0x2000
+phy_init,   data, phy,      0xf000,    0x1000
+ota_0,      app,  ota_0,    0x10000,   0x600000
+ota_1,      app,  ota_1,    0x610000,  0x600000
+storage,    data, spiffs,   0xc10000,  0x3f0000

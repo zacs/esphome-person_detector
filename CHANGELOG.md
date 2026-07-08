@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.2 — partition-offset fix (no bootable app)
+
+- **Fix `No bootable app partitions` / `invalid magic byte` on boot.** The
+  two-OTA partition tables (firmware + example) started the first app slot at
+  0x20000, but ESPHome's factory image writes the app at the standard 0x10000,
+  so the bootloader found an empty slot. Realign to the standard ESP-IDF two-OTA
+  layout (app at 0x10000). Device-config detail, not a component change.
+
 ## v0.1.1 — pre-rev3 ESP32-P4 boot fix
 
 - **Fix boot-loop / `Illegal instruction` at bootloader entry** on pre-rev3
