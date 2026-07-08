@@ -225,11 +225,24 @@ All large buffers are placed in the shared PSRAM; internal SRAM use is limited t
 the single inference-task stack, so this coexists with a heavy 800×1280
 MIPI-DSI LVGL display.
 
+**Measured static footprint** (CI `esphome compile`, ESP32-P4, ESPHome 2026.6.0 /
+ESP-IDF 5.5.4, CSI backend `esp_video_camera` + `person_detect` + ESP-DL +
+pedestrian model):
+
+| Metric | Value |
+|---|---|
+| Total image | **2,290,794 B (~2.29 MB)** — **Flash 13.6 %** of 16 MB |
+| `.text` (code) | 1.63 MB |
+| `.rodata` (model weights + const) | 596 KB |
+| Internal RAM (DIRAM) | 84,942 B — **12.96 %** of 640 KB (`.bss` 19 KB, `.data` 10 KB) |
+| Static RAM total | 5.8 % of 512 KB |
+| PPA / capture / tensor-arena buffers | **PSRAM, allocated at runtime** (not in the image) |
+
 **Flash / partition table (required).** The pedestrian model is embedded in the
-app image (flash rodata), which makes the linked binary **~2.0 MB** — over
-ESPHome's default ~1.75 MB app partition. You **must** use a partition table
-with a larger app partition. The example ships one (`example/partitions.csv`,
-6 MB OTA slots on 16 MB flash) wired via:
+app image (flash rodata), so the linked binary is **~2.3 MB** — over ESPHome's
+default ~1.75 MB app partition. You **must** use a partition table with a larger
+app partition. The example ships one (`example/partitions.csv`, 6 MB OTA slots on
+16 MB flash) wired via:
 
 ```yaml
 esp32:
@@ -237,8 +250,8 @@ esp32:
   partitions: partitions.csv
 ```
 
-Exact figures depend on the model build and your ESPHome version — **measure them
-on your own build**:
+The PSRAM figures depend on capture resolution/rotation and can only be read on
+hardware — **measure them on your own build**:
 
 - **Flash** — the `esphome compile` size output reports the app image size
   (RAM/Flash summary). The pedestrian model dominates the delta.
