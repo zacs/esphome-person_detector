@@ -60,11 +60,17 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
   void set_rotation(uint16_t deg) { this->rotation_ = deg; }
   void set_swap_rgb(bool swap) { this->swap_rgb_ = swap; }
   void set_frame_buffer_count(uint8_t n) { this->fb_count_ = n; }
+  void set_exposure(int e) { this->exposure_ = e; }
+  void set_gain(int g) { this->gain_ = g; }
 
  protected:
   bool power_on_sensor_();
   bool open_and_configure_();
   bool setup_ppa_();
+  // Drive the sensor's exposure/gain via V4L2 controls. The SC-family sensors
+  // power up at their minimum exposure (a near-black frame) and only auto-expose
+  // if esp_ipa has a per-sensor tuning config, so set a usable level explicitly.
+  void apply_sensor_controls_();
 
   // Config
   int sccb_sda_{-1};
@@ -80,6 +86,8 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
   uint16_t rotation_{0};
   bool swap_rgb_{false};
   uint8_t fb_count_{2};
+  int exposure_{-1};  // raw sensor exposure; -1 = auto-pick a bright default
+  int gain_{-1};      // raw sensor gain;     -1 = auto-pick a moderate default
 
   // Runtime
   bool ready_{false};

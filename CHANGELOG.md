@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.9 — set sensor exposure/gain (fix near-black frames)
+
+The v0.1.8 probe showed `frame[min=8 max=16 mean=11]` — the pipeline works but
+the image is near-black: the SC202CS powers up at its **minimum exposure**
+(`0x08`) and only auto-exposes if `esp_ipa` has a per-sensor tuning config, which
+isn't wired up, so exposure never rises.
+
+- After `STREAMON`, set the sensor **exposure/gain via V4L2 controls**
+  (`V4L2_CID_EXPOSURE`/`_ABSOLUTE`, `V4L2_CID_ANALOGUE_GAIN`/`GAIN`) — default to
+  ~70% of the exposure range and a moderate gain, and log each control's range.
+- New `esp_video_camera` options `exposure:` / `gain:` (raw sensor units, or
+  `auto`) to tune for the room.
+
 ## v0.1.8 — frame-content probe (diagnose blank vs valid frames)
 
 v0.1.7 got the pipeline fully running — frames captured, PPA rotate, inference

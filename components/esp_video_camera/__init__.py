@@ -44,6 +44,8 @@ ESP_VIDEO_REF = "2.2.0"
 CONF_POWERDOWN_PIN = "powerdown_pin"
 CONF_ENABLE_PIN = "enable_pin"
 CONF_I2C_PORT = "i2c_port"
+CONF_EXPOSURE = "exposure"
+CONF_GAIN = "gain"
 CONF_SENSOR = "sensor"
 CONF_SWAP_RGB = "swap_rgb"
 CONF_FRAME_BUFFER_COUNT = "frame_buffer_count"
@@ -94,6 +96,15 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_ROTATION, default=0): cv.one_of(*ROTATIONS, int=True),
         cv.Optional(CONF_SWAP_RGB, default=False): cv.boolean,
         cv.Optional(CONF_FRAME_BUFFER_COUNT, default=2): cv.int_range(min=2, max=4),
+        # Sensor exposure/gain in raw sensor units. Omit (or "auto") to let the
+        # driver pick a bright default — the SC202CS powers up at its minimum
+        # exposure, which is a near-black frame. Raise/lower to suit the room.
+        cv.Optional(CONF_EXPOSURE, default="auto"): cv.Any(
+            cv.one_of("auto", lower=True), cv.int_range(min=0)
+        ),
+        cv.Optional(CONF_GAIN, default="auto"): cv.Any(
+            cv.one_of("auto", lower=True), cv.int_range(min=0)
+        ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -122,6 +133,11 @@ async def to_code(config):
     cg.add(var.set_rotation(config[CONF_ROTATION]))
     cg.add(var.set_swap_rgb(config[CONF_SWAP_RGB]))
     cg.add(var.set_frame_buffer_count(config[CONF_FRAME_BUFFER_COUNT]))
+    # -1 => auto (driver picks a bright default) for exposure/gain.
+    exposure = config[CONF_EXPOSURE]
+    cg.add(var.set_exposure(-1 if exposure == "auto" else exposure))
+    gain = config[CONF_GAIN]
+    cg.add(var.set_gain(-1 if gain == "auto" else gain))
 
     # esp_video managed component + build-time selection of the CSI/ISP path and
     # the sensor. Kconfig symbol names verified against espressif/esp-video-components

@@ -226,7 +226,49 @@ bool EspVideoCamera::start() {
   }
   this->streaming_ = true;
   ESP_LOGD(TAG, "Streaming started");
+  // Controls take effect once the sensor is streaming.
+  this->apply_sensor_controls_();
   return true;
+}
+
+void EspVideoCamera::apply_sensor_controls_() {
+  // Query a control's range, then set it to an explicit value or a fraction of
+  // its range. Returns true if the control exists and was set.
+  auto set_ctrl = [this](uint32_t cid, const char *name, int explicit_val,
+                         float frac) -> bool {
+    struct v4l2_queryctrl q = {};
+    q.id = cid;
+    if (xioctl(this->fd_, VIDIOC_QUERYCTRL, &q) != 0 ||
+        (q.flags & V4L2_CTRL_FLAG_DISABLED))
+      return false;
+    int val = explicit_val >= 0
+                  ? explicit_val
+                  : (int) (q.minimum + (q.maximum - q.minimum) * frac);
+    if (val < q.minimum)
+      val = q.minimum;
+    if (val > q.maximum)
+      val = q.maximum;
+    struct v4l2_control c = {};
+    c.id = cid;
+    c.value = val;
+    if (xioctl(this->fd_, VIDIOC_S_CTRL, &c) != 0) {
+      ESP_LOGW(TAG, "set %s=%d failed: %s (range %d..%d)", name, val,
+               strerror(errno), (int) q.minimum, (int) q.maximum);
+      return false;
+    }
+    ESP_LOGCONFIG(TAG, "sensor %s=%d (range %d..%d, default %d)", name, val,
+                  (int) q.minimum, (int) q.maximum, (int) q.default_value);
+    return true;
+  };
+
+  // Exposure: the SC-family sensors power up at their minimum (a near-black
+  // frame), so lift to ~70% of range unless overridden. Try the raw exposure
+  // control, then the absolute variant esp_video may expose instead.
+  if (!set_ctrl(V4L2_CID_EXPOSURE, "exposure", this->exposure_, 0.70f))
+    set_ctrl(V4L2_CID_EXPOSURE_ABSOLUTE, "exposure_abs", this->exposure_, 0.70f);
+  // Gain: a moderate lift. Prefer analogue gain, fall back to generic gain.
+  if (!set_ctrl(V4L2_CID_ANALOGUE_GAIN, "analogue_gain", this->gain_, 0.30f))
+    set_ctrl(V4L2_CID_GAIN, "gain", this->gain_, 0.30f);
 }
 
 void EspVideoCamera::stop() {
