@@ -92,11 +92,14 @@ esp_video_camera:
   scl: 38
   i2c_port: 1           # dedicated controller (the expander bus above is I2C0)
   resolution: 1280x720
-  # 0 = landscape (a standing person is already upright in the 1280x720 sensor
-  # image). Use 90/270 only for a portrait mount, else people appear sideways to
-  # the pedestrian model. exposure/gain default to a bright auto value; the
-  # SC202CS otherwise powers up near-black — tune per room if needed.
-  rotation: 0
+  # auto = read the onboard IMU once at boot and orient so people are upright in
+  # whatever orientation the device is in. Set 0/90/180/270 explicitly to pin it
+  # (recommended for a fixed mount). exposure/gain default to a bright auto value;
+  # the SC202CS otherwise powers up near-black — tune per room if needed.
+  rotation: auto
+  imu:                  # LSM6DS3TR 6-axis IMU on the expander I2C bus
+    i2c_id: bus_expander
+    address: 0x6A
   swap_rgb: false
   enable_pin:           # CAM_EN = expander bit 1
     xl9535: cam_expander

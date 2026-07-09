@@ -12,11 +12,14 @@ because stock ESPHome has no configurable MIPI-CSI camera platform yet.
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
+from esphome.components import i2c
 from esphome.components.esp32 import add_idf_component, add_idf_sdkconfig_option
 from esphome.components.person_detect import FrameSource
 from esphome.const import (
+    CONF_ADDRESS,
     CONF_FREQUENCY,
     CONF_ID,
+    CONF_I2C_ID,
     CONF_RESET_PIN,
     CONF_RESOLUTION,
     CONF_ROTATION,
@@ -49,6 +52,10 @@ CONF_GAIN = "gain"
 CONF_SENSOR = "sensor"
 CONF_SWAP_RGB = "swap_rgb"
 CONF_FRAME_BUFFER_COUNT = "frame_buffer_count"
+CONF_IMU = "imu"
+
+# rotation: auto reads an accelerometer once at boot to keep people upright.
+ROTATION_AUTO = "auto"
 
 # The reTerminal D1001's camera is marketed as "SC2356"; the esp_cam_sensor
 # driver for that part is named SC202CS (SC2356 is the same die).
@@ -93,7 +100,21 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_RESOLUTION, default="1280x720"): cv.enum(
             {k: k for k in RESOLUTIONS}, lower=True
         ),
-        cv.Optional(CONF_ROTATION, default=0): cv.one_of(*ROTATIONS, int=True),
+        # Explicit 0/90/180/270, or "auto" to pick once at boot from an IMU.
+        cv.Optional(CONF_ROTATION, default=0): cv.Any(
+            cv.one_of(ROTATION_AUTO, lower=True),
+            cv.one_of(*ROTATIONS, int=True),
+        ),
+        # Optional accelerometer for rotation: auto (D1001: LSM6DS3TR @ 0x6A on
+        # the expander I2C bus). One read at boot; no polling.
+        cv.Optional(CONF_IMU): cv.Schema(
+            {
+                cv.Required(CONF_I2C_ID): cv.use_id(i2c.I2CBus),
+                cv.Optional(CONF_ADDRESS, default=0x6A): cv.int_range(
+                    min=0, max=0x7F
+                ),
+            }
+        ),
         cv.Optional(CONF_SWAP_RGB, default=False): cv.boolean,
         cv.Optional(CONF_FRAME_BUFFER_COUNT, default=2): cv.int_range(min=2, max=4),
         # Sensor exposure/gain in raw sensor units. Omit (or "auto") to let the
@@ -130,7 +151,14 @@ async def to_code(config):
 
     width, height, mode_kconfig = RESOLUTIONS[config[CONF_RESOLUTION]]
     cg.add(var.set_capture_size(width, height))
-    cg.add(var.set_rotation(config[CONF_ROTATION]))
+    if config[CONF_ROTATION] == ROTATION_AUTO:
+        cg.add(var.set_auto_rotation(True))  # rotation picked from the IMU at boot
+    else:
+        cg.add(var.set_rotation(config[CONF_ROTATION]))
+    if CONF_IMU in config:
+        imu = config[CONF_IMU]
+        imu_bus = await cg.get_variable(imu[CONF_I2C_ID])
+        cg.add(var.set_imu(imu_bus, imu[CONF_ADDRESS]))
     cg.add(var.set_swap_rgb(config[CONF_SWAP_RGB]))
     cg.add(var.set_frame_buffer_count(config[CONF_FRAME_BUFFER_COUNT]))
     # -1 => auto (driver picks a bright default) for exposure/gain.

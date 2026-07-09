@@ -90,7 +90,14 @@ void EspVideoCamera::setup() {
     return;
   }
 
-  if (!this->open_and_configure_() || !this->setup_ppa_()) {
+  if (!this->open_and_configure_()) {
+    this->mark_failed();
+    return;
+  }
+  // Pick the rotation from gravity before sizing the PPA output (rotation:auto).
+  if (this->auto_rotation_)
+    this->detect_rotation_from_imu_();
+  if (!this->setup_ppa_()) {
     this->mark_failed();
     return;
   }
@@ -100,6 +107,59 @@ void EspVideoCamera::setup() {
                      "RGB888 %ux%u",
                 this->cap_w_, this->cap_h_, this->rotation_, this->out_w_,
                 this->out_h_);
+}
+
+void EspVideoCamera::detect_rotation_from_imu_() {
+#ifdef USE_I2C
+  if (this->imu_bus_ == nullptr) {
+    ESP_LOGW(TAG, "rotation: auto but no imu configured — using 0 (landscape)");
+    this->rotation_ = 0;
+    return;
+  }
+  // Minimal LSM6DS-family accelerometer read (e.g. the D1001's LSM6DS3TR @ 0x6A).
+  auto read_regs = [this](uint8_t reg, uint8_t *buf, size_t n) -> bool {
+    return this->imu_bus_->write(this->imu_addr_, &reg, 1, false) == i2c::ERROR_OK &&
+           this->imu_bus_->read(this->imu_addr_, buf, n) == i2c::ERROR_OK;
+  };
+  auto write_reg = [this](uint8_t reg, uint8_t val) {
+    uint8_t b[2] = {reg, val};
+    this->imu_bus_->write(this->imu_addr_, b, 2, true);
+  };
+
+  uint8_t who = 0;
+  if (!read_regs(0x0F, &who, 1) || who != 0x6A) {  // WHO_AM_I
+    ESP_LOGW(TAG, "IMU WHO_AM_I=0x%02X (expected 0x6A) — using rotation 0", who);
+    this->rotation_ = 0;
+    return;
+  }
+  write_reg(0x10, 0x40);  // CTRL1_XL: 104 Hz, ±2g
+  delay(30);
+  uint8_t d[6] = {};
+  if (!read_regs(0x28, d, 6)) {  // OUTX_L_A..OUTZ_H_A
+    ESP_LOGW(TAG, "IMU accel read failed — using rotation 0");
+    this->rotation_ = 0;
+    return;
+  }
+  int16_t ax = static_cast<int16_t>(d[0] | (d[1] << 8));
+  int16_t ay = static_cast<int16_t>(d[2] | (d[3] << 8));
+  int16_t az = static_cast<int16_t>(d[4] | (d[5] << 8));
+  int abs_x = ax < 0 ? -ax : ax;
+  int abs_y = ay < 0 ? -ay : ay;
+
+  // Choose the rotation that puts world-up at the top of the frame. The exact
+  // axis/sign mapping is board-specific; raw values are logged so it can be
+  // calibrated. (First mapping is a best guess for the D1001.)
+  uint16_t rot;
+  if (abs_x >= abs_y)
+    rot = ax > 0 ? 90 : 270;
+  else
+    rot = ay > 0 ? 0 : 180;
+  ESP_LOGCONFIG(TAG, "IMU accel ax=%d ay=%d az=%d -> auto rotation %u deg", ax, ay,
+                az, rot);
+  this->rotation_ = rot;
+#else
+  this->rotation_ = 0;
+#endif
 }
 
 bool EspVideoCamera::power_on_sensor_() {

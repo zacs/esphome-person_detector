@@ -13,7 +13,11 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/gpio.h"
+#include "esphome/core/defines.h"
 #include "esphome/components/person_detect/frame_source.h"
+#ifdef USE_I2C
+#include "esphome/components/i2c/i2c_bus.h"
+#endif
 
 #include <vector>
 
@@ -58,6 +62,15 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
     this->cap_h_ = h;
   }
   void set_rotation(uint16_t deg) { this->rotation_ = deg; }
+  // rotation: auto — pick the rotation once at boot from an accelerometer, unless
+  // an explicit rotation was given. Low cost: a single read, no polling.
+  void set_auto_rotation(bool a) { this->auto_rotation_ = a; }
+#ifdef USE_I2C
+  void set_imu(i2c::I2CBus *bus, uint8_t address) {
+    this->imu_bus_ = bus;
+    this->imu_addr_ = address;
+  }
+#endif
   void set_swap_rgb(bool swap) { this->swap_rgb_ = swap; }
   void set_frame_buffer_count(uint8_t n) { this->fb_count_ = n; }
   void set_exposure(int e) { this->exposure_ = e; }
@@ -67,6 +80,9 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
   bool power_on_sensor_();
   bool open_and_configure_();
   bool setup_ppa_();
+  // One-time gravity read → pick rotation so people are upright in the current
+  // device orientation. Falls back to 0 (landscape) if no/unknown IMU.
+  void detect_rotation_from_imu_();
   // Drive the sensor's exposure/gain via V4L2 controls. The SC-family sensors
   // power up at their minimum exposure (a near-black frame) and only auto-expose
   // if esp_ipa has a per-sensor tuning config, so set a usable level explicitly.
@@ -88,6 +104,11 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
   uint16_t cap_w_{1280};
   uint16_t cap_h_{720};
   uint16_t rotation_{0};
+  bool auto_rotation_{false};
+#ifdef USE_I2C
+  i2c::I2CBus *imu_bus_{nullptr};
+  uint8_t imu_addr_{0x6A};
+#endif
   bool swap_rgb_{false};
   uint8_t fb_count_{2};
   int exposure_{-1};  // raw sensor exposure; -1 = auto-pick a bright default

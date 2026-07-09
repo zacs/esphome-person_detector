@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.12 — optional auto-rotation from an accelerometer
+
+`rotation:` now also accepts **`auto`**: a single accelerometer read at boot
+picks 0/90/180/270 so a standing person is upright in whatever orientation the
+device is in — no polling, and an explicit `rotation:` always wins. Add an
+optional `imu:` block (`i2c_id` + `address`, default `0x6A`) pointing at a
+LSM6DS-family accelerometer; the D1001's onboard LSM6DS3TR sits on the expander
+I2C bus. Gravity-based orientation needs the device roughly upright (wall/desk
+mount); lying flat it holds the last orientation. The raw accel values and the
+chosen rotation are logged so the axis/sign mapping can be calibrated per board.
+
 ## v0.1.11 — keep exposure applied (consistent detection)
 
 v0.1.10 proved the fix works when it lands (`sensor exposure=811`, frame

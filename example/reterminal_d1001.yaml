@@ -83,7 +83,10 @@ esp_video_camera:
   scl: 38
   i2c_port: 1                  # dedicated controller (expander bus above is I2C0)
   resolution: 1280x720
-  rotation: 0                  # 0=landscape (upright); 90/270 for a portrait mount
+  rotation: auto               # one-time IMU read at boot; or pin 0/90/180/270
+  imu:                         # LSM6DS3TR 6-axis IMU (for rotation: auto)
+    i2c_id: bus_expander
+    address: 0x6A
   # exposure/gain default to a bright auto value (SC202CS powers up near-black);
   # set `exposure:`/`gain:` in raw sensor units to tune for your room.
   swap_rgb: false
