@@ -41,6 +41,19 @@ static int xioctl(int fd, unsigned long req, void *arg) {
   return r;
 }
 
+// Set a single V4L2 control through the *extended* API — esp_video wires up
+// sensor controls there, not through the legacy VIDIOC_S_CTRL.
+static bool set_ext_ctrl(int fd, uint32_t cid, int value) {
+  struct v4l2_ext_control c = {};
+  c.id = cid;
+  c.value = value;
+  struct v4l2_ext_controls cs = {};
+  cs.which = V4L2_CTRL_WHICH_CUR_VAL;  // set current value regardless of class
+  cs.count = 1;
+  cs.controls = &c;
+  return xioctl(fd, VIDIOC_S_EXT_CTRLS, &cs) == 0;
+}
+
 void EspVideoCamera::setup() {
   ESP_LOGCONFIG(TAG, "Setting up esp_video_camera (MIPI-CSI)...");
 
@@ -232,15 +245,15 @@ bool EspVideoCamera::start() {
 }
 
 void EspVideoCamera::apply_sensor_controls_() {
-  // esp_video exposes sensor controls through the *extended* control API
-  // (VIDIOC_S_EXT_CTRLS) — the legacy VIDIOC_S_CTRL path isn't wired up, which is
-  // why v0.1.9's controls silently did nothing (no "sensor exposure=" line and
-  // the frame stayed at the sensor's minimum). Query the range best-effort (for
-  // logging + fractional targets), then set via the extended API, falling back
-  // to a known range when the query isn't supported.
-  auto set_ext = [this](uint32_t cid, const char *name, int explicit_val,
-                        float frac, int fb_lo, int fb_hi) -> bool {
-    int lo = fb_lo, hi = fb_hi, def = -1;
+  // esp_video exposes sensor controls through the extended control API
+  // (set_ext_ctrl); the legacy VIDIOC_S_CTRL path isn't wired up. Query the
+  // range best-effort (for logging + fractional targets), falling back to a
+  // known range when the query isn't supported.
+  auto query_range = [this](uint32_t cid, int fb_lo, int fb_hi, int &lo, int &hi,
+                            int &def) {
+    lo = fb_lo;
+    hi = fb_hi;
+    def = -1;
     struct v4l2_queryctrl q = {};
     q.id = cid;
     if (xioctl(this->fd_, VIDIOC_QUERYCTRL, &q) == 0 &&
@@ -249,38 +262,54 @@ void EspVideoCamera::apply_sensor_controls_() {
       hi = (int) q.maximum;
       def = (int) q.default_value;
     }
-    int val = explicit_val >= 0 ? explicit_val : (int) (lo + (hi - lo) * frac);
-    if (val < lo)
-      val = lo;
-    if (val > hi)
-      val = hi;
-
-    struct v4l2_ext_control c = {};
-    c.id = cid;
-    c.value = val;
-    struct v4l2_ext_controls cs = {};
-    cs.which = V4L2_CTRL_WHICH_CUR_VAL;  // set current value regardless of class
-    cs.count = 1;
-    cs.controls = &c;
-    if (xioctl(this->fd_, VIDIOC_S_EXT_CTRLS, &cs) != 0) {
-      ESP_LOGW(TAG, "set %s=%d failed: %s", name, val, strerror(errno));
-      return false;
-    }
-    ESP_LOGCONFIG(TAG, "sensor %s=%d (range %d..%d, default %d)", name, val, lo,
-                  hi, def);
-    return true;
+  };
+  auto pick = [](int explicit_val, int lo, int hi, float frac) {
+    int v = explicit_val >= 0 ? explicit_val : (int) (lo + (hi - lo) * frac);
+    return v < lo ? lo : (v > hi ? hi : v);
   };
 
+  int lo, hi, def;
+
   // Exposure is the dominant lever: the SC202CS powers up at its minimum (~8 of
-  // a ~1244 max = a near-black frame), so lift it well up by default. Try the
-  // raw exposure control, then the absolute variant.
-  if (!set_ext(V4L2_CID_EXPOSURE, "exposure", this->exposure_, 0.65f, 8, 1244))
-    set_ext(V4L2_CID_EXPOSURE_ABSOLUTE, "exposure_abs", this->exposure_, 0.65f, 8,
-            1244);
-  // Gain: a modest lift on top. Prefer analogue gain, fall back to generic gain.
-  if (!set_ext(V4L2_CID_ANALOGUE_GAIN, "analogue_gain", this->gain_, 0.25f, 0,
-               255))
-    set_ext(V4L2_CID_GAIN, "gain", this->gain_, 0.25f, 0, 255);
+  // a ~1244 max = a near-black frame), so lift it well up by default. Remember
+  // the intent even if this first set fails, so reassert_controls_ retries it.
+  query_range(V4L2_CID_EXPOSURE, 8, 1244, lo, hi, def);
+  this->applied_exp_cid_ = V4L2_CID_EXPOSURE;
+  this->applied_exp_val_ = pick(this->exposure_, lo, hi, 0.65f);
+  if (set_ext_ctrl(this->fd_, this->applied_exp_cid_, this->applied_exp_val_))
+    ESP_LOGCONFIG(TAG, "sensor exposure=%d (range %d..%d, default %d)",
+                  this->applied_exp_val_, lo, hi, def);
+  else
+    ESP_LOGW(TAG, "set exposure=%d failed: %s (will retry)",
+             this->applied_exp_val_, strerror(errno));
+
+  // Gain: a modest lift on top. Prefer the generic gain control (which the
+  // SC202CS accepts); only fall back to analogue gain if that's rejected.
+  query_range(V4L2_CID_GAIN, 0, 255, lo, hi, def);
+  int gval = pick(this->gain_, lo, hi, 0.25f);
+  if (set_ext_ctrl(this->fd_, V4L2_CID_GAIN, gval)) {
+    this->applied_gain_cid_ = V4L2_CID_GAIN;
+    this->applied_gain_val_ = gval;
+    ESP_LOGCONFIG(TAG, "sensor gain=%d (range %d..%d, default %d)", gval, lo, hi,
+                  def);
+  } else {
+    query_range(V4L2_CID_ANALOGUE_GAIN, 0, 255, lo, hi, def);
+    gval = pick(this->gain_, lo, hi, 0.25f);
+    if (set_ext_ctrl(this->fd_, V4L2_CID_ANALOGUE_GAIN, gval)) {
+      this->applied_gain_cid_ = V4L2_CID_ANALOGUE_GAIN;
+      this->applied_gain_val_ = gval;
+      ESP_LOGCONFIG(TAG, "sensor analogue_gain=%d (range %d..%d, default %d)",
+                    gval, lo, hi, def);
+    }
+  }
+  this->last_ctrl_us_ = esp_timer_get_time();
+}
+
+void EspVideoCamera::reassert_controls_() {
+  if (this->applied_exp_val_ >= 0)
+    set_ext_ctrl(this->fd_, this->applied_exp_cid_, this->applied_exp_val_);
+  if (this->applied_gain_val_ >= 0 && this->applied_gain_cid_ != 0)
+    set_ext_ctrl(this->fd_, this->applied_gain_cid_, this->applied_gain_val_);
 }
 
 void EspVideoCamera::stop() {
@@ -295,6 +324,14 @@ void EspVideoCamera::stop() {
 bool EspVideoCamera::acquire(person_detect::FrameView &out, uint32_t timeout_ms) {
   if (!this->streaming_)
     return false;
+
+  // Re-assert exposure/gain periodically: a set right at STREAMON occasionally
+  // doesn't take (frame stays near-black) and some ISP paths drift it, so this
+  // self-corrects within a couple seconds regardless.
+  if (esp_timer_get_time() - this->last_ctrl_us_ > 2000000) {
+    this->reassert_controls_();
+    this->last_ctrl_us_ = esp_timer_get_time();
+  }
 
   // The fd is non-blocking (esp_video doesn't support select/poll), so poll
   // DQBUF until a filled buffer is ready or the timeout elapses. At 30 fps a

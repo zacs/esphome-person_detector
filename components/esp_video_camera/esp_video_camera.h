@@ -71,6 +71,10 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
   // power up at their minimum exposure (a near-black frame) and only auto-expose
   // if esp_ipa has a per-sensor tuning config, so set a usable level explicitly.
   void apply_sensor_controls_();
+  // Re-apply the chosen exposure/gain. A set right at STREAMON occasionally
+  // doesn't take (and some ISP paths drift exposure), so acquire() calls this
+  // periodically so a missed/drifted value self-corrects. Silent.
+  void reassert_controls_();
 
   // Config
   int sccb_sda_{-1};
@@ -88,6 +92,13 @@ class EspVideoCamera : public Component, public person_detect::FrameSource {
   uint8_t fb_count_{2};
   int exposure_{-1};  // raw sensor exposure; -1 = auto-pick a bright default
   int gain_{-1};      // raw sensor gain;     -1 = auto-pick a moderate default
+
+  // The exposure/gain we actually applied, re-asserted periodically by acquire().
+  uint32_t applied_exp_cid_{0};
+  int applied_exp_val_{-1};
+  uint32_t applied_gain_cid_{0};
+  int applied_gain_val_{-1};
+  int64_t last_ctrl_us_{0};
 
   // Runtime
   bool ready_{false};

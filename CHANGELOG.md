@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.11 — keep exposure applied (consistent detection)
+
+v0.1.10 proved the fix works when it lands (`sensor exposure=811`, frame
+`mean≈130`, detections at 0.85–0.89), but the set right at `STREAMON` didn't
+always take — some boots stayed near-black, needing the subject in bright light.
+
+- **Re-assert exposure/gain periodically** from `acquire()` (~every 2 s) so a
+  missed initial set or any ISP drift self-corrects within a couple seconds —
+  the intended value is remembered even if the first set fails.
+- **Try the generic `V4L2_CID_GAIN` first** (which the SC202CS accepts) instead
+  of `V4L2_CID_ANALOGUE_GAIN`, removing the `ctrl id=9e0903 is not supported`
+  error the sensor logged on every boot.
+
+Tune with `exposure:` / `gain:` on `esp_video_camera` if your room needs it.
+
 ## v0.1.10 — exposure via extended controls + landscape default
 
 The v0.1.9 exposure code silently did nothing — no `sensor exposure=` line ever
