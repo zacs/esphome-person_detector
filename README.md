@@ -26,7 +26,7 @@ point of the project.
 
 | | |
 |---|---|
-| SoC | **ESP32-P4 only** (codegen hard-fails on any other target) |
+| SoC | **ESP32-P4 verified.** Other ESP-DL targets (e.g. **ESP32-S3**) are *allowed but experimental* — see [Portability](#portability) |
 | Framework | **ESP-IDF only** (the P4 has no Arduino core) |
 | PSRAM | **Required** — the model runtime and frame buffers live here |
 | Flash | **`flash_size: 16MB`** — the embedded model makes the app image ~2.3 MB; 16 MB lets ESPHome auto-size an app partition that fits (no custom partition CSV) |
@@ -232,6 +232,20 @@ internal SRAM.
 result to the main loop for debouncing, state publishing, and triggers. See
 [`DESIGN.md`](DESIGN.md) for the full design and
 [`BRINGUP.md`](BRINGUP.md) for a first-flash checklist.
+
+## Portability
+
+The detector is SoC-agnostic by design: it consumes frames through a pluggable
+`FrameSource` and the ESP-DL model runs on the ESP32-S3 as well as the P4. Only
+the **ESP32-P4 path is verified**, so on other targets `person_detect` warns
+(rather than blocking) at compile time.
+
+What's P4-specific is the **`esp_video_camera`** backend — it uses the P4's
+MIPI-CSI controller, ISP, and PPA, which no other ESP32 has (it hard-fails
+elsewhere). To run on an **S3**, feed frames through **`camera_id`** instead: a
+JPEG ESPHome camera (e.g. an OV2640/OV3660 over DVP). That path exists behind the
+same seam but **is not yet hardware-verified** — expect slower inference, no
+hardware rotation, and some bring-up. Contributions to verify it are welcome.
 
 ## Extending
 

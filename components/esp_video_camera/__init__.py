@@ -13,7 +13,12 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
 from esphome.components import i2c
-from esphome.components.esp32 import add_idf_component, add_idf_sdkconfig_option
+from esphome.components.esp32 import (
+    VARIANT_ESP32P4,
+    add_idf_component,
+    add_idf_sdkconfig_option,
+    get_esp32_variant,
+)
 from esphome.components.person_detect import FrameSource
 from esphome.const import (
     CONF_ADDRESS,
@@ -128,6 +133,23 @@ CONFIG_SCHEMA = cv.Schema(
         ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
+
+
+def _final_validate(config):
+    # Unlike person_detect (SoC-agnostic), this backend is P4-only silicon: it
+    # uses the MIPI-CSI controller, the ISP, and the PPA, none of which exist on
+    # other ESP32s. Fail with a clear message instead of an obscure build error.
+    variant = get_esp32_variant()
+    if variant != VARIANT_ESP32P4:
+        raise cv.Invalid(
+            f"esp_video_camera needs an ESP32-P4 (MIPI-CSI + ISP + PPA), but this "
+            f"device is '{variant}'. On other targets, drive person_detect with a "
+            f"JPEG camera via camera_id instead of this backend."
+        )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 async def to_code(config):

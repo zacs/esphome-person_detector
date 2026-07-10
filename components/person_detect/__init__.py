@@ -1,9 +1,12 @@
-"""person_detect — on-device human presence detection for ESP32-P4.
+"""person_detect — on-device human presence detection for ESPHome.
 
-Consumes frames from an ESPHome camera source (by ID), runs a quantized
+Consumes frames from a pluggable FrameSource (by ID), runs a quantized
 pedestrian-detection model (Espressif ESP-DL) entirely on-device, and drives a
-binary_sensor / sensors / triggers. No frame ever leaves the device.
+binary_sensor / sensors / triggers. No frame ever leaves the device. Verified on
+ESP32-P4; other ESP-DL targets are allowed but experimental (see README).
 """
+
+import logging
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
@@ -13,6 +16,8 @@ from esphome.components.esp32 import (
     add_idf_component,
     get_esp32_variant,
 )
+
+_LOGGER = logging.getLogger(__name__)
 from esphome.const import CONF_ID, CONF_MODEL, CONF_TRIGGER_ID
 
 CODEOWNERS = ["@zacs"]
@@ -118,14 +123,19 @@ CONFIG_SCHEMA = cv.All(CONFIG_SCHEMA, _require_one_source)
 
 
 def _final_validate(config):
-    # v1 is ESP32-P4 only: the model is P4-quantized and the frame path relies
-    # on P4 CSI/PPA. Fail codegen with a clear message on anything else.
+    # The detector itself is SoC-agnostic (ESP-DL runs on the S3 as well as the
+    # P4), so don't hard-fail on the variant. Only the ESP32-P4 path is verified;
+    # the built-in esp_video_camera backend is P4-only silicon (CSI/ISP/PPA), so
+    # other targets must supply frames via `camera_id` (a JPEG ESPHome camera,
+    # e.g. an OV2640 on the S3) — that path is unverified. Warn, don't block.
     variant = get_esp32_variant()
     if variant != VARIANT_ESP32P4:
-        raise cv.Invalid(
-            f"person_detect requires an ESP32-P4 target, but this device is "
-            f"configured as '{variant}'. Set esp32: variant: ESP32P4 (ESP-IDF "
-            f"framework). Other targets are not supported in v1."
+        _LOGGER.warning(
+            "person_detect is verified on ESP32-P4; '%s' is experimental. The "
+            "esp_video_camera (MIPI-CSI) backend is P4-only, so on this target "
+            "feed frames via camera_id (a JPEG camera such as an OV2640). Expect "
+            "slower inference and ensure enough PSRAM for the model + frames.",
+            variant,
         )
     return config
 
