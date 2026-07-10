@@ -146,14 +146,14 @@ void EspVideoCamera::detect_rotation_from_imu_() {
   int abs_x = ax < 0 ? -ax : ax;
   int abs_y = ay < 0 ? -ay : ay;
 
-  // Choose the rotation that puts world-up at the top of the frame. The exact
-  // axis/sign mapping is board-specific; raw values are logged so it can be
-  // calibrated. (First mapping is a best guess for the D1001.)
+  // Choose the rotation that puts world-up at the top of the frame. Mapping
+  // calibrated on the D1001 (raw values logged so other boards can recheck):
+  //   gravity -Y -> 0 (landscape), +X -> 90 (portrait), +Y -> 180, -X -> 270.
   uint16_t rot;
   if (abs_x >= abs_y)
     rot = ax > 0 ? 90 : 270;
   else
-    rot = ay > 0 ? 0 : 180;
+    rot = ay > 0 ? 180 : 0;
   ESP_LOGCONFIG(TAG, "IMU accel ax=%d ay=%d az=%d -> auto rotation %u deg", ax, ay,
                 az, rot);
   this->rotation_ = rot;

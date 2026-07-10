@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.13 — calibrate auto-rotation Y axis
+
+The v0.1.12 auto-rotation was right in portrait (gravity +X → 90°) but flipped in
+landscape (gravity −Y picked 180° when it needed 0°). Fix the inverted Y-axis
+branch; the mapping is now calibrated against both orientations on the D1001:
+gravity **−Y → 0** (landscape), **+X → 90** (portrait), **+Y → 180**, **−X → 270**.
+
 ## v0.1.12 — optional auto-rotation from an accelerometer
 
 `rotation:` now also accepts **`auto`**: a single accelerometer read at boot
