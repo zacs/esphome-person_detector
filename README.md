@@ -9,7 +9,7 @@ entirely on-device, and exposes it to Home Assistant as an occupancy
 
 It's built to be portable and extended: the detection model, the camera sensor,
 the frame-source backend, and the target SoC are all swappable (see
-[Extending](#extending) and [Portability](#portability)). The Seeed Studio
+[Extending and portability](#extending-and-portability)). The Seeed Studio
 reTerminal D1001 (ESP32-P4 + MIPI-CSI SC2356) is simply the first board that's
 been verified end-to-end on hardware — a starting point, not the purpose. Other
 ESP-DL targets, such as an ESP32-S3 with a DVP camera, fit the same design; they
@@ -40,9 +40,20 @@ Two practical consequences worth knowing:
   camera to see bodies, not head-and-shoulders.
 - Inference takes about 75 ms on the ESP32-P4 (it also runs on the S3, slower).
 
-The model is swappable: the `model:` key on `person_detect` selects it, and any
-ESP-DL detector that returns `dl::detect::result_t` boxes can be added — see
-[Extending](#extending).
+ESP-DL ships a whole [catalog of models](https://github.com/espressif/esp-dl/tree/master/models),
+and the right one depends on framing. `pedestrian_detect` (the default) suits
+room-scale presence, where you see whole bodies. For close range — a desk, a
+doorway, a doorbell, where the camera mostly sees a head and shoulders —
+[`human_face_detect`](https://github.com/espressif/esp-dl/tree/master/models/human_face_detect)
+tends to work better. It detects that a face is *present*, not whose it is
+(that's face *detection*, not *recognition*), so it stays within the
+presence-only, no-identity design. Others like the 80-class `coco_detect` also
+include a person class.
+
+Today only `pedestrian` is wired up as a `model:` value; adding another ESP-DL
+detector (face, COCO, hand, …) is the small extension described in
+[Extending and portability](#extending-and-portability) — any model that returns
+`dl::detect::result_t` boxes drops into the existing pipeline.
 
 ## Requirements
 
@@ -50,7 +61,7 @@ The detector runs anywhere ESP-DL does; these are the practical constraints:
 
 | | |
 |---|---|
-| SoC | ESP32-P4 is verified. Other ESP-DL targets (e.g. ESP32-S3) are allowed but experimental — a warning, not a build error. See [Portability](#portability) |
+| SoC | ESP32-P4 is verified. Other ESP-DL targets (e.g. ESP32-S3) are allowed but experimental — a warning, not a build error. See [Extending and portability](#extending-and-portability) |
 | Framework | ESP-IDF (no Arduino core on these targets) |
 | PSRAM | Required — the model runtime and frame buffers live here |
 | Flash | `flash_size: 16MB` — the embedded model makes the app image ~2.3 MB; 16 MB lets ESPHome auto-size an app partition that fits, with no custom partition CSV |
@@ -62,7 +73,7 @@ Tested against ESPHome 2026.6.0 / ESP-IDF v5.5.4.
 These paths use the reTerminal D1001 because it's the verified board, but the
 shape is the same for any board: pull the component, give it a frame source, and
 expose a sensor. For a different ESP32-P4 camera board, point `esp_video_camera`
-at your sensor and pins; for another SoC, see [Portability](#portability).
+at your sensor and pins; for another SoC, see [Extending and portability](#extending-and-portability).
 
 ### Option A — flash the prebuilt D1001 image (fastest)
 
@@ -265,38 +276,33 @@ the main loop for debouncing, state publishing, and triggers. See
 [`DESIGN.md`](DESIGN.md) for the full design and [`BRINGUP.md`](BRINGUP.md) for a
 first-flash checklist.
 
-## Portability
+## Extending and portability
 
-The detector is SoC-agnostic by design: it consumes frames through a pluggable
-`FrameSource`, and the ESP-DL model runs on the ESP32-S3 as well as the P4. Only
-the ESP32-P4 path is verified, so on other targets `person_detect` warns rather
-than blocking at compile time.
+The component is layered so you can add support along several axes without
+touching the core — including the target SoC, which is really just another axis:
 
-What's P4-specific is the `esp_video_camera` backend — it uses the P4's MIPI-CSI
-controller, ISP, and PPA, which no other ESP32 has, so it hard-fails elsewhere.
-To run on an S3, feed frames through `camera_id` instead: a JPEG ESPHome camera
-such as an OV2640/OV3660 over DVP (see ESPHome's `esp32_camera` component). That
-path exists behind the same seam but isn't hardware-verified yet — expect slower
-inference, no hardware rotation, and some bring-up. Contributions to verify it
-are welcome.
-
-## Extending
-
-The component is layered so contributors can add support without touching the core:
-
-- A detection model — a row in the `MODELS` table plus a `case` in
-  `PersonDetector::create_model_()` (`components/person_detect/`); any ESP-DL
-  detector returning `dl::detect::result_t` boxes fits.
-- A camera sensor — a `sensor:` enum entry and its `esp_cam_sensor` Kconfig in
+- Detection model — pick from [ESP-DL's model catalog](https://github.com/espressif/esp-dl/tree/master/models)
+  (pedestrian, face, hand, the 80-class COCO detector, and more). Add one with a
+  row in the `MODELS` table plus a `case` in `PersonDetector::create_model_()`
+  (`components/person_detect/`); any ESP-DL detector returning
+  `dl::detect::result_t` boxes fits.
+- Camera sensor — a `sensor:` enum entry and its `esp_cam_sensor` Kconfig in
   `components/esp_video_camera/__init__.py`; the capture/PPA path is
   sensor-independent.
-- A frame-source backend — implement `person_detect::FrameSource`
+- Frame-source backend — implement `person_detect::FrameSource`
   (`frame_source.h`) and yield `FrameView`s; the detector consumes them unchanged.
-- A board — a device YAML with its `esp32:` details, camera wiring, and a
+- Board — a device YAML with its `esp32:` details, camera wiring, and a
   `person_detect` block. The D1001 files under `example/` and `firmware/` are the
   first; others sit alongside them.
+- Target SoC — the detector is SoC-agnostic (ESP-DL runs on the S3 as well as
+  the P4), so `person_detect` only warns off-P4 rather than blocking. The
+  P4-specific piece is `esp_video_camera`, which uses the P4's MIPI-CSI + ISP +
+  PPA and hard-fails elsewhere. To run on an S3, add a frame-source backend fed
+  by a DVP JPEG camera — ESPHome's `esp32_camera` (e.g. an OV2640) via
+  `camera_id`. Only the P4 path is hardware-verified; the S3 route exists behind
+  the same seam but needs bring-up (slower inference, no hardware rotation).
 
-Contributions for new models, sensors, and boards are welcome.
+Contributions for new models, sensors, boards, and the S3 path are welcome.
 
 ## License
 
