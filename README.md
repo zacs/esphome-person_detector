@@ -1,29 +1,48 @@
 # esphome-person_detector
 
-**On-device human-presence detection for ESPHome.**
+On-device human-presence detection for ESPHome.
 
 `person_detect` is a general-purpose ESPHome external component that uses a
-camera to decide whether a **person is in frame** — presence only, *not*
-identity — entirely on-device, and exposes it to Home Assistant as an occupancy
+camera to decide whether a person is in frame — presence only, not identity —
+entirely on-device, and exposes it to Home Assistant as an occupancy
 `binary_sensor`.
 
-It's built to be portable and extended: the **detection model**, the **camera
-sensor**, the **frame-source backend**, and the **target SoC** are all
-swappable (see [Extending](#extending) and [Portability](#portability)). The
-**Seeed Studio reTerminal D1001** (ESP32-P4 + MIPI-CSI SC2356) is just the
-**first board that's been verified end-to-end on hardware** — a starting point,
-not the purpose. Other ESP-DL targets (e.g. the ESP32-S3 with a DVP camera) fit
-the same design; they're allowed today and just need verifying.
+It's built to be portable and extended: the detection model, the camera sensor,
+the frame-source backend, and the target SoC are all swappable (see
+[Extending](#extending) and [Portability](#portability)). The Seeed Studio
+reTerminal D1001 (ESP32-P4 + MIPI-CSI SC2356) is simply the first board that's
+been verified end-to-end on hardware — a starting point, not the purpose. Other
+ESP-DL targets, such as an ESP32-S3 with a DVP camera, fit the same design; they
+work today and just need verifying.
 
-## Privacy — what leaves the device: nothing
+## Privacy
 
-- **No image, frame, embedding, or audio ever leaves the device.** No cloud API,
-  no companion server, no streaming to HA. All inference is on-device.
-- **No identity, no recognition.** No face-recognition models, no biometric data
-  stored or persisted. It answers exactly one question: *is a person in frame
-  right now?*
-- An optional **detection toggle** (`switch`): **on** = detecting (the default),
-  **off** = camera released and no inference at all. Flip it *off* for privacy.
+Nothing leaves the device. There's no cloud API, no companion server, and no
+streaming to Home Assistant — all inference runs locally. It uses no
+face-recognition models and stores no biometric data; it answers one question,
+"is a person in frame right now?", and nothing else. An optional `switch` turns
+detection on and off: on is the default, and turning it off releases the camera
+and stops all inference, so flipping it off gives you a hard privacy cut.
+
+## The model
+
+Detection uses Espressif's
+[`pedestrian_detect`](https://components.espressif.com/components/espressif/pedestrian_detect)
+model (v0.3.0), built on [ESP-DL](https://github.com/espressif/esp-dl),
+Espressif's on-device deep-learning library. It's an INT8-quantized full-body
+pedestrian detector with a 224×224×3 input, pulled in automatically by the
+ESP-IDF component manager — you don't fetch or embed anything by hand.
+
+Two practical consequences worth knowing:
+
+- It looks for whole standing or walking people, not faces. A close-up of your
+  face may not trigger it, but a person standing in the room will — so aim the
+  camera to see bodies, not head-and-shoulders.
+- Inference takes about 75 ms on the ESP32-P4 (it also runs on the S3, slower).
+
+The model is swappable: the `model:` key on `person_detect` selects it, and any
+ESP-DL detector that returns `dl::detect::result_t` boxes can be added — see
+[Extending](#extending).
 
 ## Requirements
 
@@ -31,33 +50,32 @@ The detector runs anywhere ESP-DL does; these are the practical constraints:
 
 | | |
 |---|---|
-| SoC | **ESP32-P4 verified.** Other ESP-DL targets (e.g. **ESP32-S3**) are *allowed but experimental* — a warning, not a build error. See [Portability](#portability) |
-| Framework | **ESP-IDF** (no Arduino core on these targets) |
-| PSRAM | **Required** — the model runtime and frame buffers live here |
-| Flash | **`flash_size: 16MB`** — the embedded model makes the app image ~2.3 MB; 16 MB lets ESPHome auto-size an app partition that fits (no custom partition CSV) |
+| SoC | ESP32-P4 is verified. Other ESP-DL targets (e.g. ESP32-S3) are allowed but experimental — a warning, not a build error. See [Portability](#portability) |
+| Framework | ESP-IDF (no Arduino core on these targets) |
+| PSRAM | Required — the model runtime and frame buffers live here |
+| Flash | `flash_size: 16MB` — the embedded model makes the app image ~2.3 MB; 16 MB lets ESPHome auto-size an app partition that fits, with no custom partition CSV |
 
-Tested against **ESPHome 2026.6.0** / **ESP-IDF v5.5.4** with the
-`espressif/pedestrian_detect` v0.3.0 model (ESP-DL, 224×224×3 INT8).
+Tested against ESPHome 2026.6.0 / ESP-IDF v5.5.4.
 
 ## Quick start
 
-These paths use the reTerminal D1001 because it's the verified board — the same
-shape applies to any board: pull the component, give it a `FrameSource`, expose a
-sensor. For a different ESP32-P4 camera board, point `esp_video_camera` at your
-sensor/pins; for another SoC, see [Portability](#portability).
+These paths use the reTerminal D1001 because it's the verified board, but the
+shape is the same for any board: pull the component, give it a frame source, and
+expose a sensor. For a different ESP32-P4 camera board, point `esp_video_camera`
+at your sensor and pins; for another SoC, see [Portability](#portability).
 
-### Option A — flash the prebuilt reTerminal D1001 image (fastest)
+### Option A — flash the prebuilt D1001 image (fastest)
 
 Grab `reterminal-presence.factory.bin` from the [latest
 release](https://github.com/zacs/esphome-person_detector/releases), flash it to
 offset `0x0` (the [ESPHome web flasher](https://web.esphome.io) or
-`esptool.py --chip esp32p4 write_flash 0x0 …`), then join the **"reTerminal
-Presence"** Wi-Fi AP / captive portal (or Improv over USB) to set your network.
+`esptool.py --chip esp32p4 write_flash 0x0 …`), then join the "reTerminal
+Presence" Wi-Fi AP / captive portal (or Improv over USB) to set your network.
 
 ### Option B — start from the example config
 
 [`example/reterminal_d1001.yaml`](example/reterminal_d1001.yaml) is a complete,
-compilable D1001 config (board bring-up + camera wiring + detector). Copy it,
+compilable D1001 config — board bring-up, camera wiring, and detector. Copy it,
 drop in your Wi-Fi, and build:
 
 ```bash
@@ -68,14 +86,14 @@ esphome run example/reterminal_d1001.yaml
 ### Option C — add it to an existing ESP32-P4 config
 
 Pull the component in, point the detector at a camera backend, and expose a
-sensor. On the D1001 the camera backend is the built-in **`esp_video_camera`**
-(CSI + ISP → RGB888); its power/reset lines sit on an XL9535 I²C expander, so
-copy the `i2c:` + `xl9535:` + `esp_video_camera:` blocks from the example for
-the full wiring. The detector itself is just:
+sensor. On the D1001 the camera backend is `esp_video_camera` (CSI + ISP →
+RGB888); its power and reset lines sit on an XL9535 I²C expander, so copy the
+`i2c:`, `xl9535:`, and `esp_video_camera:` blocks from the example for the full
+wiring. The detector part is just:
 
 ```yaml
 external_components:
-  - source: github://zacs/esphome-person_detector@v0.1.12   # pin a tag
+  - source: github://zacs/esphome-person_detector@v0.1.13   # pin a released tag
     components: [person_detect, esp_video_camera]
 
 person_detect:
@@ -88,10 +106,10 @@ binary_sensor:
     name: "Room Occupied"       # device_class defaults to "occupancy"
 ```
 
-> **`frame_source_id` vs `camera_id`:** use **`frame_source_id`** to point at an
-> `esp_video_camera` (the raw MIPI-CSI path — this is what the D1001 uses). Only
-> use `camera_id` if you're feeding a stock ESPHome *JPEG* `camera:` instead.
-> Set exactly one. See [Frame sources](#frame-sources).
+A quick note on `frame_source_id` vs `camera_id`: use `frame_source_id` to point
+at an `esp_video_camera` (the raw MIPI-CSI path, which is what the D1001 uses),
+and `camera_id` only if you're feeding a stock ESPHome JPEG `camera:` instead.
+Set exactly one — see [Frame sources](#frame-sources).
 
 ## Configuration
 
@@ -104,7 +122,7 @@ esp_video_camera:
   id: d1001_cam
   sda: 37                # sensor SCCB (I²C) pins — D1001: 37/38
   scl: 38
-  i2c_port: 1            # SCCB I²C controller; MUST differ from your `i2c:` bus
+  i2c_port: 1            # SCCB I²C controller; must differ from your `i2c:` bus
   resolution: 1280x720
   rotation: auto         # IMU-picked at boot; or pin 0 / 90 / 180 / 270
   imu:                   # only needed for rotation: auto
@@ -118,13 +136,16 @@ esp_video_camera:
   reset_pin: { xl9535: cam_expander, number: 11 }
 ```
 
-- **`rotation: auto`** reads the accelerometer once at boot and orients so a
-  standing person is upright — handy for a device you reposition. It needs the
-  device roughly upright (wall/desk); lying flat it holds the last orientation.
-  An explicit `rotation:` always wins and is best for a fixed mount.
-- **`exposure` / `gain`** default to a bright value because the SC2356 powers up
-  near-black. If a room is too dark/bright, nudge them (raw sensor units, logged
-  at boot with their valid range).
+- `rotation` accepts `auto` or an explicit `0` / `90` / `180` / `270`. Rotation
+  is counter-clockwise, so `90` turns the image 90° CCW (confirmed on the D1001).
+  `auto` reads the accelerometer once at boot and picks the orientation that
+  keeps a standing person upright, which is handy for a device you reposition; an
+  explicit value always wins and is best for a fixed mount. Auto needs the device
+  roughly upright — lying flat, gravity is straight down and it holds the last
+  orientation.
+- `exposure` and `gain` default to a bright value because the SC2356 powers up
+  near-black. If a room comes out too dark or too bright, set them (raw sensor
+  units; the valid range is logged at boot).
 
 ### `person_detect:` — the detector
 
@@ -178,7 +199,7 @@ switch:                          # optional detection on/off (privacy)
 
 | Key | Backend | Frames | Use when |
 |---|---|---|---|
-| `frame_source_id` | **`esp_video_camera`** (this repo) | raw RGB888 (CSI + ISP + PPA) | ESP32-P4 MIPI-CSI sensors (SC2356 / D1001) — **the path the D1001 uses** |
+| `frame_source_id` | `esp_video_camera` (this repo) | raw RGB888 (CSI + ISP + PPA) | ESP32-P4 MIPI-CSI sensors (SC2356 / D1001) — the path the D1001 uses |
 | `camera_id` | a stock ESPHome `camera:` | JPEG, decoded on-device | a board that already exposes a JPEG camera to ESPHome |
 
 Both sit behind one `FrameSource` seam ([`DESIGN.md`](DESIGN.md) §2). The
@@ -190,93 +211,95 @@ user-configurable MIPI-CSI camera platform, so on the P4 you use
 
 Inference runs on its own low-priority, pinned FreeRTOS task (`task_priority`,
 `task_core`), publishes only from the main loop, and keeps every large buffer in
-PSRAM — so it stays out of the way of an 800×1280 MIPI-DSI LVGL UI. If your UI
+PSRAM, so it stays out of the way of an 800×1280 MIPI-DSI LVGL UI. If your UI
 task is pinned to a core, pin detection to the other with `task_core`.
 
 ## Tuning
 
-- **`confidence_threshold`** — raise (70–80 %) to cut false positives from
-  clutter; lower (45–55 %) if real people are missed.
-- **`interval`** — presence doesn't need video framerates; 1–2 s is a good
-  default. Inference is ~75 ms on the P4, so the task idles most of the interval.
-- **`clear_after` + `delayed_off`** — `clear_after` debounces single-frame
-  misses; a `delayed_off:` filter adds occupancy-style hold-open.
-- **Exposure / lighting** — the SC2356 is a small 2 MP sensor. If confidence sags
-  in dim rooms, raise `exposure:`/`gain:`; avoid strong backlight (windows behind
-  the subject) which silhouettes people.
+- `confidence_threshold` — raise it (70–80 %) to cut false positives from
+  clutter, or lower it (45–55 %) if real people are missed.
+- `interval` — presence doesn't need video framerates; 1–2 s is a good default.
+  Inference is ~75 ms on the P4, so the task idles most of the interval.
+- `clear_after` + `delayed_off` — `clear_after` debounces single-frame misses; a
+  `delayed_off:` filter adds occupancy-style hold-open.
+- Exposure and lighting — the SC2356 is a small 2 MP sensor. If confidence sags
+  in dim rooms, raise `exposure`/`gain`, and avoid strong backlight (a window
+  behind the subject) that silhouettes people.
 
 ## Diagnostics
 
-`logger: level: DEBUG` prints, per inference: time, frame dims, box count, best
-score, a min/max/mean frame-brightness probe, and free PSRAM. `dump_config`
-prints the model, cadence, threshold, task placement, PSRAM cost/low-water, last
-inference time, and capture-failure count. On boot `esp_video_camera` logs the
-SCCB port, applied exposure/gain (with ranges), and — for `rotation: auto` — the
-raw accelerometer reading and chosen rotation.
+With `logger: level: DEBUG`, each inference logs its time, frame dimensions, box
+count, best score, a min/max/mean frame-brightness probe, and free PSRAM.
+`dump_config` prints the model, cadence, threshold, task placement, PSRAM
+cost/low-water, last inference time, and capture-failure count. On boot,
+`esp_video_camera` logs the SCCB port, the applied exposure/gain with their
+ranges, and — for `rotation: auto` — the raw accelerometer reading and the
+rotation it chose.
 
 ## Memory / flash budget
 
-All large buffers are in PSRAM; internal SRAM use is limited to the inference
-task stack. **Measured static footprint** (CI `esphome compile`, ESP32-P4,
-ESPHome 2026.6.0 / ESP-IDF 5.5.4, `esp_video_camera` + `person_detect` + ESP-DL +
+All large buffers live in PSRAM; internal SRAM use is limited to the inference
+task stack. Measured static footprint (CI `esphome compile`, ESP32-P4, ESPHome
+2026.6.0 / ESP-IDF 5.5.4, `esp_video_camera` + `person_detect` + ESP-DL +
 pedestrian model):
 
 | Metric | Value |
 |---|---|
-| Total image | **~2.29 MB — Flash 13.6 %** of 16 MB |
+| Total image | ~2.29 MB (Flash 13.6 % of 16 MB) |
 | `.rodata` (model weights + const) | 596 KB |
 | Internal RAM (static) | ~5.8 % of 512 KB |
-| PPA / capture / tensor-arena buffers | **PSRAM, allocated at runtime** (not in the image) |
+| PPA / capture / tensor-arena buffers | PSRAM, allocated at runtime (not in the image) |
 
-Runtime PSRAM depends on resolution/rotation — read it on your build from the
+Runtime PSRAM depends on resolution and rotation; read it on your build from the
 `model runtime PSRAM cost` (startup) and `PSRAM free low-water` (`dump_config`)
-log lines. Rough placement: model weights → flash; ESP-DL tensor arena, the
-RGB888 frame (1280×720 ≈ 2.6 MB), and camera buffers → PSRAM; task stack →
-internal SRAM.
+log lines. Roughly: model weights go in flash; the ESP-DL tensor arena, the
+RGB888 frame (1280×720 ≈ 2.6 MB), and camera buffers go in PSRAM; the task stack
+is internal SRAM.
 
 ## How it works
 
 `PersonDetector` pulls one typed RGB frame per `interval` from a `FrameSource`
-(on a dedicated low-priority FreeRTOS task), runs an ESP-DL detection model
-(resized to the model input via the P4's hardware image path), and marshals the
-result to the main loop for debouncing, state publishing, and triggers. See
-[`DESIGN.md`](DESIGN.md) for the full design and
-[`BRINGUP.md`](BRINGUP.md) for a first-flash checklist.
+(on a dedicated low-priority FreeRTOS task), runs the ESP-DL model on it (resized
+to the model input via the P4's hardware image path), and marshals the result to
+the main loop for debouncing, state publishing, and triggers. See
+[`DESIGN.md`](DESIGN.md) for the full design and [`BRINGUP.md`](BRINGUP.md) for a
+first-flash checklist.
 
 ## Portability
 
 The detector is SoC-agnostic by design: it consumes frames through a pluggable
-`FrameSource` and the ESP-DL model runs on the ESP32-S3 as well as the P4. Only
-the **ESP32-P4 path is verified**, so on other targets `person_detect` warns
-(rather than blocking) at compile time.
+`FrameSource`, and the ESP-DL model runs on the ESP32-S3 as well as the P4. Only
+the ESP32-P4 path is verified, so on other targets `person_detect` warns rather
+than blocking at compile time.
 
-What's P4-specific is the **`esp_video_camera`** backend — it uses the P4's
-MIPI-CSI controller, ISP, and PPA, which no other ESP32 has (it hard-fails
-elsewhere). To run on an **S3**, feed frames through **`camera_id`** instead: a
-JPEG ESPHome camera (e.g. an OV2640/OV3660 over DVP). That path exists behind the
-same seam but **is not yet hardware-verified** — expect slower inference, no
-hardware rotation, and some bring-up. Contributions to verify it are welcome.
+What's P4-specific is the `esp_video_camera` backend — it uses the P4's MIPI-CSI
+controller, ISP, and PPA, which no other ESP32 has, so it hard-fails elsewhere.
+To run on an S3, feed frames through `camera_id` instead: a JPEG ESPHome camera
+such as an OV2640/OV3660 over DVP (see ESPHome's `esp32_camera` component). That
+path exists behind the same seam but isn't hardware-verified yet — expect slower
+inference, no hardware rotation, and some bring-up. Contributions to verify it
+are welcome.
 
 ## Extending
 
 The component is layered so contributors can add support without touching the core:
 
-- **A detection model** — a row in the `MODELS` table + a `case` in
+- A detection model — a row in the `MODELS` table plus a `case` in
   `PersonDetector::create_model_()` (`components/person_detect/`); any ESP-DL
   detector returning `dl::detect::result_t` boxes fits.
-- **A camera sensor** — a `sensor:` enum entry + its `esp_cam_sensor` Kconfig in
+- A camera sensor — a `sensor:` enum entry and its `esp_cam_sensor` Kconfig in
   `components/esp_video_camera/__init__.py`; the capture/PPA path is
   sensor-independent.
-- **A frame-source backend** — implement `person_detect::FrameSource`
+- A frame-source backend — implement `person_detect::FrameSource`
   (`frame_source.h`) and yield `FrameView`s; the detector consumes them unchanged.
-- **A board** — a device YAML (its `esp32:` details, camera wiring, and a
-  `person_detect` block). The D1001 files under `example/` and `firmware/` are
-  the first; others sit alongside them.
+- A board — a device YAML with its `esp32:` details, camera wiring, and a
+  `person_detect` block. The D1001 files under `example/` and `firmware/` are the
+  first; others sit alongside them.
 
 Contributions for new models, sensors, and boards are welcome.
 
 ## License
 
-C++ under **GPL-3.0-only** to match the ESPHome ecosystem (see `LICENSE`).
-Bundled Espressif ESP-DL and the pedestrian model are Apache-2.0 / MIT — see
+C++ is licensed GPL-3.0-only to match the ESPHome ecosystem (see `LICENSE`).
+The bundled Espressif ESP-DL and pedestrian model are Apache-2.0 / MIT — see
 `NOTICE`.
