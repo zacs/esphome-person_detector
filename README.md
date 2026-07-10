@@ -22,7 +22,8 @@ the same design; they're allowed today and just need verifying.
 - **No identity, no recognition.** No face-recognition models, no biometric data
   stored or persisted. It answers exactly one question: *is a person in frame
   right now?*
-- The privacy `switch` (optional) releases the camera and stops all work when off.
+- An optional **detection toggle** (`switch`): **on** = detecting (the default),
+  **off** = camera released and no inference at all. Flip it *off* for privacy.
 
 ## Requirements
 
@@ -165,10 +166,10 @@ sensor:                          # optional
     type: count                  # boxes over threshold
     name: "People Count"
 
-switch:                          # optional privacy toggle
+switch:                          # optional detection on/off (privacy)
   - platform: person_detect
     person_detect_id: presence
-    name: "Presence Detection"   # off => camera idle, no inference
+    name: "Presence Detection"   # on = detecting (default); off = camera idle, no inference
 ```
 
 ## Frame sources
