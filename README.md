@@ -1,15 +1,19 @@
 # esphome-person_detector
 
-**On-device human-presence detection for ESPHome on ESP32-P4.**
+**On-device human-presence detection for ESPHome.**
 
-`person_detect` is an ESPHome external component that uses a camera to decide
-whether a **person is in frame** — presence only, *not* identity — entirely
-on-device, and exposes it to Home Assistant as an occupancy `binary_sensor`.
+`person_detect` is a general-purpose ESPHome external component that uses a
+camera to decide whether a **person is in frame** — presence only, *not*
+identity — entirely on-device, and exposes it to Home Assistant as an occupancy
+`binary_sensor`.
 
-The **detection model**, the **camera sensor**, and the **frame-source backend**
-are all pluggable (see [Extending](#extending)). The **Seeed Studio reTerminal
-D1001** (ESP32-P4 + MIPI-CSI SC2356) is the **first supported board**, not the
-point of the project.
+It's built to be portable and extended: the **detection model**, the **camera
+sensor**, the **frame-source backend**, and the **target SoC** are all
+swappable (see [Extending](#extending) and [Portability](#portability)). The
+**Seeed Studio reTerminal D1001** (ESP32-P4 + MIPI-CSI SC2356) is just the
+**first board that's been verified end-to-end on hardware** — a starting point,
+not the purpose. Other ESP-DL targets (e.g. the ESP32-S3 with a DVP camera) fit
+the same design; they're allowed today and just need verifying.
 
 ## Privacy — what leaves the device: nothing
 
@@ -22,12 +26,12 @@ point of the project.
 
 ## Requirements
 
-`person_detect` fails codegen with a clear message if these aren't met:
+The detector runs anywhere ESP-DL does; these are the practical constraints:
 
 | | |
 |---|---|
-| SoC | **ESP32-P4 verified.** Other ESP-DL targets (e.g. **ESP32-S3**) are *allowed but experimental* — see [Portability](#portability) |
-| Framework | **ESP-IDF only** (the P4 has no Arduino core) |
+| SoC | **ESP32-P4 verified.** Other ESP-DL targets (e.g. **ESP32-S3**) are *allowed but experimental* — a warning, not a build error. See [Portability](#portability) |
+| Framework | **ESP-IDF** (no Arduino core on these targets) |
 | PSRAM | **Required** — the model runtime and frame buffers live here |
 | Flash | **`flash_size: 16MB`** — the embedded model makes the app image ~2.3 MB; 16 MB lets ESPHome auto-size an app partition that fits (no custom partition CSV) |
 
@@ -35,6 +39,11 @@ Tested against **ESPHome 2026.6.0** / **ESP-IDF v5.5.4** with the
 `espressif/pedestrian_detect` v0.3.0 model (ESP-DL, 224×224×3 INT8).
 
 ## Quick start
+
+These paths use the reTerminal D1001 because it's the verified board — the same
+shape applies to any board: pull the component, give it a `FrameSource`, expose a
+sensor. For a different ESP32-P4 camera board, point `esp_video_camera` at your
+sensor/pins; for another SoC, see [Portability](#portability).
 
 ### Option A — flash the prebuilt reTerminal D1001 image (fastest)
 
