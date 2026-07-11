@@ -393,6 +393,22 @@ bool EspVideoCamera::acquire(person_detect::FrameView &out, uint32_t timeout_ms)
     this->last_ctrl_us_ = esp_timer_get_time();
   }
 
+  // Drop already-captured frames so inference runs on a LIVE one. We grab only
+  // once per interval, but V4L2's DQBUF is FIFO, so without this it hands back
+  // the oldest queued buffer — a frame captured a couple of cycles ago. Requeue
+  // every ready buffer, then wait below for the sensor to fill a fresh one.
+  {
+    struct v4l2_buffer stale = {};
+    stale.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    stale.memory = V4L2_MEMORY_MMAP;
+    while (xioctl(this->fd_, VIDIOC_DQBUF, &stale) == 0) {
+      xioctl(this->fd_, VIDIOC_QBUF, &stale);
+      stale = {};
+      stale.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+      stale.memory = V4L2_MEMORY_MMAP;
+    }
+  }
+
   // The fd is non-blocking (esp_video doesn't support select/poll), so poll
   // DQBUF until a filled buffer is ready or the timeout elapses. At 30 fps a
   // frame lands within ~33 ms; the short vTaskDelay yields to other tasks.

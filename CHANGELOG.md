@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.1 — run inference on live frames
+
+`acquire()` did a single FIFO `VIDIOC_DQBUF`, so with only two capture buffers
+and one grab per `interval` it handed back a frame captured a couple of cycles
+(~2–3 s) earlier rather than the live one. Flush every already-queued buffer
+before grabbing, so inference always runs on the freshest frame. (This bounds
+staleness to one frame period; it does not change the model's behavior on
+out-of-distribution scenes — a pedestrian detector aimed at a blank ceiling can
+still produce spurious low-confidence boxes.)
+
 ## v0.2.0 — first hardware-verified release (reTerminal D1001)
 
 The full pipeline now works end-to-end on real D1001 hardware: MIPI-CSI capture
