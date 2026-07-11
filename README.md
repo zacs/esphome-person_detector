@@ -134,6 +134,7 @@ esp_video_camera:
   sda: 37                # sensor SCCB (I²C) pins — D1001: 37/38
   scl: 38
   i2c_port: 1            # SCCB I²C controller; must differ from your `i2c:` bus
+  # i2c_id: touch_bus    # OR: share an existing i2c bus instead of sda/scl/i2c_port
   resolution: 1280x720
   rotation: auto         # IMU-picked at boot; or pin 0 / 90 / 180 / 270
   imu:                   # only needed for rotation: auto
@@ -157,6 +158,15 @@ esp_video_camera:
 - `exposure` and `gain` default to a bright value because the SC2356 powers up
   near-black. If a room comes out too dark or too bright, set them (raw sensor
   units; the valid range is logged at boot).
+- SCCB bus — by default the camera installs its own I²C master on `sda`/`scl` /
+  `i2c_port` (`i2c_port` must differ from every ESPHome `i2c:` bus). On a board
+  that already uses both P4 I²C controllers — e.g. a display + touch build where
+  the SCCB physically shares the touch bus wires — set `i2c_id:` to an existing
+  `i2c:` bus instead: the camera then joins that bus as another device rather
+  than installing a second master. `i2c_id` and `sda`/`scl`/`i2c_port` are
+  mutually exclusive; the sensor keeps its own `frequency` (per-device on the
+  shared bus, so it's independent of e.g. a 400 kHz touch controller on the same
+  wires).
 
 ### `person_detect:` — the detector
 

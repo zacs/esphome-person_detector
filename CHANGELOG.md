@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.3.0 — share an existing I2C bus for the SCCB
+
+For integrating into a full board (display + touchscreen), where both ESP32-P4
+I2C controllers are already used and the camera SCCB physically shares the touch
+bus wires (GPIO37/38): a new optional `i2c_id:` on `esp_video_camera` points the
+SCCB at an existing ESPHome `i2c:` bus instead of installing a second master
+(which would collide at runtime and the sensor would never probe). When set, the
+sensor joins that bus as another device via its `i2c_master_bus_handle_t`
+(`init_sccb=false`), alongside e.g. the touch controller. `i2c_id` and the raw
+`sda`/`scl`/`i2c_port` path are mutually exclusive; the sensor keeps its own
+per-device `frequency` on the shared bus, so it coexists with a 400 kHz touch
+controller. Standalone (own-master) behavior is unchanged.
+
+Verify on hardware with both the camera and the touch controller active.
+
 ## v0.2.1 — run inference on live frames
 
 `acquire()` did a single FIFO `VIDIOC_DQBUF`, so with only two capture buffers

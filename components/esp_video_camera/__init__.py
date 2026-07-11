@@ -82,14 +82,25 @@ ROTATIONS = [0, 90, 180, 270]
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(EspVideoCamera),
-        # Sensor SCCB (I2C) — reTerminal D1001: SDA=GPIO37, SCL=GPIO38.
+        # --- Sensor SCCB (I2C). Two mutually-exclusive ways to reach it: ---
+        # (a) Share an existing ESPHome `i2c:` bus by id. Use this on a board that
+        #     already uses both P4 I2C controllers (e.g. a display + touch build
+        #     where the SCCB shares the touch bus wires): no new master is
+        #     installed; the sensor joins the referenced bus as another device.
+        #     When set, `sda`/`scl`/`i2c_port` below are ignored.
+        cv.Optional(CONF_I2C_ID): cv.use_id(i2c.I2CBus),
+        # (b) Install our own SCCB master on raw pins/controller (standalone).
+        #     reTerminal D1001: SDA=GPIO37, SCL=GPIO38.
         cv.Optional(CONF_SDA, default=37): cv.int_range(min=0, max=56),
         cv.Optional(CONF_SCL, default=38): cv.int_range(min=0, max=56),
-        # Dedicated I2C controller for the SCCB. MUST differ from the port the
-        # ESPHome `i2c:` bus uses (that one is port 0 when it's declared first,
-        # e.g. the D1001 expander bus), else the master-bus install collides and
-        # the sensor is never detected. P4 has controllers 0 and 1.
+        # Dedicated I2C controller for the (a-off) standalone master. MUST differ
+        # from the port an ESPHome `i2c:` bus uses (that one is port 0 when
+        # declared first, e.g. the D1001 expander bus), else the install collides
+        # and the sensor is never detected. P4 has controllers 0 and 1.
         cv.Optional(CONF_I2C_PORT, default=1): cv.int_range(min=0, max=1),
+        # SCCB clock. With a shared bus (a) the new i2c-master API sets this
+        # per-device, so it's independent of other devices' speeds (e.g. a 400kHz
+        # touch controller on the same wires).
         cv.Optional(CONF_FREQUENCY, default="100kHz"): cv.All(
             cv.frequency, cv.int_range(min=1)
         ),
@@ -159,6 +170,10 @@ async def to_code(config):
     cg.add(var.set_sccb_pins(config[CONF_SDA], config[CONF_SCL]))
     cg.add(var.set_sccb_port(config[CONF_I2C_PORT]))
     cg.add(var.set_sccb_freq(int(config[CONF_FREQUENCY])))
+    # Share an existing ESPHome i2c bus for the SCCB instead of installing a new
+    # master (display+touch boards where both P4 controllers are already used).
+    if CONF_I2C_ID in config:
+        cg.add(var.set_sccb_bus(await cg.get_variable(config[CONF_I2C_ID])))
 
     if CONF_ENABLE_PIN in config:
         cg.add(var.set_enable_pin(await cg.gpio_pin_expression(config[CONF_ENABLE_PIN])))

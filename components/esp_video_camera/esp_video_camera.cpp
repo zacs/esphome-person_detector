@@ -27,6 +27,8 @@
 #include "esp_timer.h"
 #include "esp_video_init.h"
 
+#include "driver/i2c_master.h"  // i2c_master_get_bus_handle for shared-bus SCCB
+
 namespace esphome {
 namespace esp_video_camera {
 
@@ -63,24 +65,49 @@ void EspVideoCamera::setup() {
   }
 
   // Initialize the CSI + ISP pipeline and the sensor's SCCB (I2C). Power/reset
-  // are handled by us via the expander, so tell esp_video there are none. The
-  // SCCB gets its OWN I2C controller (sccb_port_) — it must not be the port that
-  // ESPHome's `i2c:` bus already owns (e.g. the expander bus), or the master-bus
-  // install collides, the sensor never probes, and no /dev/video0 is created.
+  // are handled by us via the expander, so tell esp_video there are none.
   esp_video_init_csi_config_t csi = {};
-  csi.sccb_config.init_sccb = true;
-  csi.sccb_config.i2c_config.port = this->sccb_port_;
-  csi.sccb_config.i2c_config.scl_pin = static_cast<gpio_num_t>(this->sccb_scl_);
-  csi.sccb_config.i2c_config.sda_pin = static_cast<gpio_num_t>(this->sccb_sda_);
   csi.sccb_config.freq = this->sccb_freq_;
   csi.reset_pin = static_cast<gpio_num_t>(-1);   // handled via expander
   csi.pwdn_pin = static_cast<gpio_num_t>(-1);
 
+#ifdef USE_I2C
+  if (this->sccb_bus_ != nullptr) {
+    // Share an existing ESPHome i2c bus: don't install a master, hand esp_video
+    // the underlying i2c_master_bus_handle_t so the sensor joins that bus as
+    // another device (alongside e.g. a touch controller on the same wires). The
+    // new i2c-master API is per-device speed, so our sccb freq is independent of
+    // the other devices' speeds. Retrieve the handle from the bus's port.
+    int port = static_cast<i2c::InternalI2CBus *>(this->sccb_bus_)->get_port();
+    i2c_master_bus_handle_t handle = nullptr;
+    esp_err_t herr = i2c_master_get_bus_handle(static_cast<i2c_port_num_t>(port), &handle);
+    if (herr != ESP_OK || handle == nullptr) {
+      ESP_LOGE(TAG, "Could not get i2c bus handle for shared SCCB (port %d): %s",
+               port, esp_err_to_name(herr));
+      this->mark_failed();
+      return;
+    }
+    csi.sccb_config.init_sccb = false;
+    csi.sccb_config.i2c_handle = handle;
+    ESP_LOGCONFIG(TAG, "esp_video_init: SCCB shares ESPHome i2c bus (port %d) @ %uHz",
+                  port, (unsigned) this->sccb_freq_);
+  } else
+#endif
+  {
+    // Standalone: install our own SCCB master on sccb_port_. It must not be the
+    // port an ESPHome `i2c:` bus already owns, or the install collides and the
+    // sensor never probes (no /dev/video0).
+    csi.sccb_config.init_sccb = true;
+    csi.sccb_config.i2c_config.port = this->sccb_port_;
+    csi.sccb_config.i2c_config.scl_pin = static_cast<gpio_num_t>(this->sccb_scl_);
+    csi.sccb_config.i2c_config.sda_pin = static_cast<gpio_num_t>(this->sccb_sda_);
+    ESP_LOGCONFIG(TAG, "esp_video_init: SCCB on I2C%d (SDA=%d SCL=%d @ %uHz)",
+                  this->sccb_port_, this->sccb_sda_, this->sccb_scl_,
+                  (unsigned) this->sccb_freq_);
+  }
+
   esp_video_init_config_t cfg = {};
   cfg.csi = &csi;
-  ESP_LOGCONFIG(TAG, "esp_video_init: SCCB on I2C%d (SDA=%d SCL=%d @ %uHz)",
-                this->sccb_port_, this->sccb_sda_, this->sccb_scl_,
-                (unsigned) this->sccb_freq_);
   esp_err_t err = esp_video_init(&cfg);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "esp_video_init failed: %s — check SCCB wiring/port and that "
@@ -500,9 +527,17 @@ void EspVideoCamera::release() {
 
 void EspVideoCamera::dump_config() {
   ESP_LOGCONFIG(TAG, "esp_video_camera (MIPI-CSI):");
-  ESP_LOGCONFIG(TAG, "  SCCB (sensor I2C): I2C%d SDA=%d SCL=%d @ %uHz",
-                this->sccb_port_, this->sccb_sda_, this->sccb_scl_,
-                (unsigned) this->sccb_freq_);
+#ifdef USE_I2C
+  if (this->sccb_bus_ != nullptr) {
+    ESP_LOGCONFIG(TAG, "  SCCB (sensor I2C): shared ESPHome i2c bus @ %uHz",
+                  (unsigned) this->sccb_freq_);
+  } else
+#endif
+  {
+    ESP_LOGCONFIG(TAG, "  SCCB (sensor I2C): own master I2C%d SDA=%d SCL=%d @ %uHz",
+                  this->sccb_port_, this->sccb_sda_, this->sccb_scl_,
+                  (unsigned) this->sccb_freq_);
+  }
   LOG_PIN("  Enable pin: ", this->enable_pin_);
   LOG_PIN("  Power-down pin: ", this->powerdown_pin_);
   LOG_PIN("  Reset pin: ", this->reset_pin_);
