@@ -104,7 +104,7 @@ wiring. The detector part is just:
 
 ```yaml
 external_components:
-  - source: github://zacs/esphome-person_detector@v0.1.13   # pin a released tag
+  - source: github://zacs/esphome-person_detector@v0.2.0   # pin a released tag
     components: [person_detect, esp_video_camera]
 
 person_detect:

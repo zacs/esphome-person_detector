@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.2.0 — first hardware-verified release (reTerminal D1001)
+
+The full pipeline now works end-to-end on real D1001 hardware: MIPI-CSI capture
+through esp_video / ISP / PPA, sensor exposure and gain, one-time IMU
+auto-rotation, and ESP-DL pedestrian detection driving the occupancy
+`binary_sensor`. This milestone rolls up the v0.1.x bring-up series.
+
+Highlights since v0.1.0:
+
+- Camera backend verified on hardware — the SC202CS is detected over SCCB on its
+  own I2C controller, captured with a non-blocking DQBUF loop, and exposure/gain
+  are set (and periodically re-asserted) over V4L2, since the sensor otherwise
+  powers up near-black.
+- `rotation: auto` — a single accelerometer read at boot (the on-board
+  LSM6DS3TR) picks the orientation, calibrated so people are upright in both
+  landscape and portrait. An explicit `rotation:` still wins, and the IMU is
+  optional.
+- General-purpose framing — the detector is SoC-agnostic and only warns off-P4;
+  `esp_video_camera` is the P4-only MIPI-CSI backend. Model, sensor, frame-source
+  backend, board, and target SoC are all extension points.
+- Docs — README, DESIGN, and BRINGUP updated to the verified state, with the
+  ESP-DL model and its alternatives (e.g. face detection for close range) linked.
+
+See the v0.1.x entries below for the detailed bring-up history.
+
 ## v0.1.13 — calibrate auto-rotation Y axis
 
 The v0.1.12 auto-rotation was right in portrait (gravity +X → 90°) but flipped in
