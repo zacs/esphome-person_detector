@@ -21,12 +21,13 @@ permissions:
 
 env:
   ESPHOME_VERSION: "2026.6.0"
-  CONFIG: firmware/reterminal_d1001.yaml
+  # name -> config. The standalone image is the one to flash normally; the
+  # shared-i2c image exercises esp_video_camera's i2c_id: (share an existing bus).
   NAME: reterminal-presence
 
 jobs:
   build:
-    name: Build reference image (reTerminal D1001)
+    name: Build reference images (reTerminal D1001)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,20 +40,25 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/pip
-          key: pio-fw-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-${{ hashFiles('firmware/reterminal_d1001.yaml') }}
+          key: pio-fw-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-${{ hashFiles('firmware/reterminal_d1001*.yaml') }}
           restore-keys: pio-fw-${{ runner.os }}-${{ env.ESPHOME_VERSION }}-
       - name: Install ESPHome
         run: pip install "esphome==${ESPHOME_VERSION}"
       - name: Compile
-        run: esphome compile "${CONFIG}"
+        run: |
+          set -euo pipefail
+          esphome compile firmware/reterminal_d1001.yaml
+          esphome compile firmware/reterminal_d1001_shared_i2c.yaml
       - name: Collect binaries
         run: |
           set -euo pipefail
           mkdir -p dist
-          factory=$(find firmware/.esphome/build -name firmware.factory.bin | head -1)
-          ota=$(find firmware/.esphome/build -name firmware.ota.bin | head -1)
-          cp "$factory" "dist/${NAME}.factory.bin"
-          cp "$ota" "dist/${NAME}.ota.bin"
+          for name in reterminal-presence reterminal-presence-shared-i2c; do
+            factory=$(find "firmware/.esphome/build/${name}" -name firmware.factory.bin | head -1)
+            ota=$(find "firmware/.esphome/build/${name}" -name firmware.ota.bin | head -1)
+            cp "$factory" "dist/${name}.factory.bin"
+            cp "$ota" "dist/${name}.ota.bin"
+          done
           ls -l dist
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

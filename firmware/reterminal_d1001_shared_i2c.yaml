@@ -1,0 +1,140 @@
+# -----------------------------------------------------------------------------
+# Shared-SCCB-bus variant of the D1001 reference firmware — a self-contained way
+# to exercise esp_video_camera's `i2c_id:` (share an existing ESPHome i2c bus for
+# the SCCB) on a plain D1001, WITHOUT a display/touch integration.
+#
+# It declares a real ESPHome i2c bus on the sensor's SCCB wires (GPIO37/38) and
+# points the camera at it via `i2c_id:` instead of installing its own master. On
+# the D1001 the GSL3670 touch controller is physically on those same wires, so
+# the bus scan should list it (proving the sensor shares the bus with another
+# device). Both P4 I2C controllers are used here (expander = one, this SCCB bus =
+# the other), matching the display+touch situation. See the standalone
+# reterminal_d1001.yaml for the normal own-master config.
+# -----------------------------------------------------------------------------
+
+esphome:
+  name: reterminal-presence-shared-i2c
+  friendly_name: reTerminal Presence (shared SCCB bus)
+
+esp32:
+  variant: esp32p4
+  flash_size: 16MB
+  cpu_frequency: 360MHZ
+  engineering_sample: true     # D1001 is pre-rev3 P4 (ROM "esp32p4-eco2")
+  framework:
+    type: esp-idf
+    version: 5.5.4
+    advanced:
+      enable_idf_experimental_features: true
+      execute_from_psram: true
+    sdkconfig_options:
+      CONFIG_SDMMC_HOST_DEFAULT: "y"
+      CONFIG_COMPILER_OPTIMIZATION_SIZE: "y"
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "8192"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+      CONFIG_ESP_HOSTED_DFLT_TASK_FROM_SPIRAM: "y"
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+logger:
+  level: DEBUG
+
+esp32_hosted:
+  variant: esp32c6
+  reset_pin: GPIO13
+  cmd_pin: GPIO6
+  clk_pin: GPIO11
+  d0_pin: GPIO7
+  d1_pin: GPIO8
+  d2_pin: GPIO9
+  d3_pin: GPIO10
+  active_high: true
+  sdio_frequency: 20MHz
+
+wifi:
+  ap:
+    ssid: "reTerminal Presence"
+captive_portal:
+improv_serial:
+
+api:
+ota:
+  platform: esphome
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [person_detect, esp_video_camera]
+
+# Two I2C buses = both P4 controllers used (as on a display+touch build):
+#   - bus_expander (GPIO20/21): camera power/reset via the XL9535, plus the IMU.
+#   - cam_sccb    (GPIO37/38): the sensor SCCB wires; the GSL3670 touch shares
+#     these on the D1001. 400 kHz here (like a touch bus) — the camera keeps its
+#     own 100 kHz per-device on the shared new-i2c-master bus.
+i2c:
+  - id: bus_expander
+    sda: GPIO20
+    scl: GPIO21
+    frequency: 400kHz
+  - id: cam_sccb
+    sda: GPIO37
+    scl: GPIO38
+    frequency: 400kHz
+
+xl9535:
+  - id: cam_expander
+    i2c_id: bus_expander
+    address: 0x20
+
+# --- MIPI-CSI capture, SCCB SHARING the cam_sccb bus (no own master) ----------
+esp_video_camera:
+  id: d1001_cam
+  i2c_id: cam_sccb       # share the existing bus instead of sda/scl/i2c_port
+  resolution: 1280x720
+  rotation: auto
+  imu:
+    i2c_id: bus_expander
+    address: 0x6A
+  swap_rgb: false
+  enable_pin:
+    xl9535: cam_expander
+    number: 1
+  powerdown_pin:
+    xl9535: cam_expander
+    number: 3
+  reset_pin:
+    xl9535: cam_expander
+    number: 11
+
+person_detect:
+  id: presence
+  frame_source_id: d1001_cam
+  interval: 1500ms
+  confidence_threshold: 60%
+  clear_after: 3
+
+binary_sensor:
+  - platform: person_detect
+    person_detect_id: presence
+    name: "Room Occupied"
+    filters:
+      - delayed_off: 15s
+
+sensor:
+  - platform: person_detect
+    person_detect_id: presence
+    type: confidence
+    name: "Presence Confidence"
+  - platform: person_detect
+    person_detect_id: presence
+    type: count
+    name: "People Count"
+
+switch:
+  - platform: person_detect
+    person_detect_id: presence
+    name: "Presence Detection"
