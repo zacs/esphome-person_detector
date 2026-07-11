@@ -1,7 +1,7 @@
 # CI test for the esp_video_camera (MIPI-CSI) raw backend + person_detect.
 # Exercises the real capture path (esp_video + ISP + PPA + ESP-DL) — no
 # fake_camera, no JPEG. Expander control pins are optional and omitted here to
-# keep CI free of a pca9554 hub; the D1001 example wires them for real hardware.
+# keep CI free of an xl9535 hub; the D1001 example wires them for real hardware.
 
 esphome:
   name: person-detect-csi-citest

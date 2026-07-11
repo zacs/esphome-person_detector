@@ -7,9 +7,9 @@
 // which it hands to person_detect directly — no JPEG encode/decode. This is the
 // "raw" backend DESIGN.md §2/§7 anticipated behind the FrameSource seam.
 //
-// Sensor power/reset lines on the reTerminal D1001 sit on an I2C GPIO expander
-// (PCA9535/XL9535), so those are ESPHome GPIOPins (from a pca9554 hub) that we
-// drive before esp_video_init; the sensor's own SCCB/I2C is handled by esp_video.
+// Sensor power/reset lines on the reTerminal D1001 sit on an XL9535 I2C GPIO
+// expander, so those are ESPHome GPIOPins (from an `xl9535:` hub) that we drive
+// before esp_video_init; the sensor's own SCCB/I2C is handled by esp_video.
 
 #include "esphome/core/component.h"
 #include "esphome/core/gpio.h"

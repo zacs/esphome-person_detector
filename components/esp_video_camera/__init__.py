@@ -93,9 +93,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FREQUENCY, default="100kHz"): cv.All(
             cv.frequency, cv.int_range(min=1)
         ),
-        # Power/reset control lines. On the D1001 these are on the PCA9535/XL9535
-        # I2C expander — declare a pca9554 (PCA9535 variant) hub and pass its
-        # pins here. Use `inverted:` to match each line's active level.
+        # Power/reset control lines. On the D1001 these are on the XL9535 I2C GPIO
+        # expander — declare an `xl9535:` hub and pass its pins here. Use
+        # `inverted:` to match each line's active level.
         cv.Optional(CONF_ENABLE_PIN): pins.gpio_output_pin_schema,
         cv.Optional(CONF_POWERDOWN_PIN): pins.gpio_output_pin_schema,
         cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,

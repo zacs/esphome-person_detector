@@ -141,21 +141,23 @@ all of this: the ISP/PPA hand it RGB888 directly.
 * Triggers: `on_person_detected`, `on_person_cleared`.
 * `switch` (optional): runtime enable/disable (privacy).
 
-## 6. Memory / flash budget (documented, to be confirmed on-device)
+## 6. Memory / flash budget (measured on hardware)
 
-| Item | Placement | Approx. size |
+Confirmed on the D1001 (ESP32-P4, ESPHome 2026.6.0 / ESP-IDF 5.5.4); the README
+carries the full measured table.
+
+| Item | Placement | Size |
 |---|---|---|
-| Pedestrian model weights | Flash (rodata, `.espdl`) | ~1–2 MB (measure at link; see README) |
-| ESP-DL tensor arena / runtime | **PSRAM** | model-dependent, hundreds of KiB |
-| Camera frame buffer(s) | **PSRAM** (owned by camera component) | 2 × frame |
-| Decoded RGB888 working buffer | **PSRAM** | W×H×3 (e.g. 1280×720×3 ≈ 2.6 MB) |
-| Task stack | Internal SRAM | 8 KiB (configurable) |
+| App image (incl. model in `.rodata`) | Flash | ~2.29 MB (13.6 % of 16 MB); model `.rodata` ~596 KB |
+| ESP-DL tensor arena / runtime | PSRAM | logged as "model runtime PSRAM cost" |
+| Camera frame buffer(s) + PPA output | PSRAM | 2 × capture + one 1280×720×3 ≈ 2.6 MB rotated RGB888 |
+| Inference task stack | Internal SRAM | 8 KiB (configurable) |
 | IRAM | — | none added beyond ESP-DL's own |
 
 Coexists with the 800×1280 LVGL/MIPI-DSI config by keeping every large buffer in
-the shared 32 MB PSRAM and internal SRAM use to the single task stack. The
-README carries a "measure it yourself" section because exact figures depend on
-the chosen model build and are not asserted here without a link map.
+the shared 32 MB PSRAM and internal SRAM use to the single task stack. Runtime
+PSRAM depends on resolution/rotation, so the README documents reading the
+`model runtime PSRAM cost` and `PSRAM free low-water` log lines per build.
 
 ## 7. Open risks (honest list)
 

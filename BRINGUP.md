@@ -1,69 +1,78 @@
-# reTerminal D1001 camera bring-up checklist
+# reTerminal D1001 camera bring-up notes
 
-The `esp_video_camera` backend was written against verified Espressif APIs
-(esp_video/V4L2, esp_cam_sensor SC2356, PPA on ESP-IDF v5.5.4) and compiles for
-ESP32-P4, but the hardware-specific values below can only be confirmed on a real
-D1001. Work through this on first flash; each item says what to watch in the
-`DEBUG` logs and how to fix it in YAML.
+The D1001 camera path is verified end-to-end on hardware: sensor detection,
+capture, exposure, auto-rotation, and pedestrian detection all work with the
+`example/`/`firmware/` configs and the prebuilt release image. This file records
+what each stage should look like in the logs and the knobs that matter — useful
+if you're re-checking a fresh board, or porting to another ESP32-P4 camera board
+or sensor. Set `logger: level: DEBUG` and watch the serial console.
 
-## 0. Prereqs
-- **Pre-rev3 silicon (required).** The D1001's ESP32-P4 is an early stepping
-  (ROM banner `esp32p4-eco2`). The config **must** set
-  `esp32: engineering_sample: true` — without it the rev3 bootloader crashes at
-  its entry with `Guru Meditation … Illegal instruction` (PC == the loader entry
-  address) and boot-loops. This flag also drops the CPU to a safe 360 MHz.
-- `logger: level: DEBUG`, serial connected.
-- `esp_video_camera` `dump_config()` prints capture size, rotation, output dims,
-  PPA buffer size. `person_detect` logs one line per inference:
-  `inference <ms>: <w>x<h> boxes=<n> best=<score> present=<0/1> psram_free=<b>`.
+## 0. Boot prerequisites
+- Pre-rev3 silicon. The D1001's ESP32-P4 is an early stepping (ROM banner
+  `esp32p4-eco2`), so the config must set `esp32: engineering_sample: true` —
+  without it the rev3 bootloader hits `Illegal instruction` at its entry and
+  boot-loops. It also pins a safe 360 MHz CPU.
+- `flash_size: 16MB`, no custom partition CSV — ESPHome auto-sizes an app slot
+  for the ~2.3 MB image and a matching factory image.
+- Wi-Fi/BLE come from the on-board ESP32-C6 over ESP-Hosted (SDIO); the example
+  wires it.
 
-## 1. esp_video dependency resolves
-- If the build fails pulling `espressif/esp_video`, adjust `ESP_VIDEO_REF` in
-  `components/esp_video_camera/__init__.py` to a version whose `esp_video_init`
-  matches (csi config with `sccb_config.i2c_config` + `dont_init_ldo`).
-- If a Kconfig name is rejected (`CONFIG_CAMERA_SC2356*`), check the installed
-  `esp_cam_sensor` Kconfig and update the names in the same file.
+## 1. Sensor detected over SCCB
+Expected: `esp_video_camera` logs `esp_video_init: SCCB on I2C1 …`, then
+`esp_video_camera ready: capture 1280x720 -> …`. If instead you see
+`open(/dev/video0): No such file or directory`, `esp_video_init` created no
+capture device — the sensor wasn't detected. Things that actually caused this:
+- SCCB on the wrong I2C controller. The sensor SCCB (`i2c_port:`, default 1) must
+  be a different controller from the ESPHome `i2c:` bus that owns the expander
+  (that one is I2C0). Two masters on one controller collide and the probe fails.
+- Sensor driver not compiled in. The part is marketed "SC2356" but the
+  `esp_cam_sensor` driver is `SC202CS`; the component enables `CONFIG_CAMERA_SC202CS`
+  plus its MIPI auto-detect. If you pin a different `esp_video` version, confirm
+  those Kconfig names still exist.
+- Power/reset. On the D1001 these are XL9535 expander pins: `enable_pin` = 1,
+  `powerdown_pin` = 3, `reset_pin` = 11 (active-low at the sensor; the driver
+  pulses it low→high, so the expander pin is not `inverted:`). SCCB pins are
+  GPIO37/38.
 
-## 2. Sensor powers up and is detected (SCCB)
-- Expect esp_video to log SC2356 detection over SCCB. If it fails:
-  - **Power lines.** Confirm the expander mapping (CAM_EN=bit1, PWDN=bit3,
-    RST=bit9) and the expander I2C bus pins/address (`i2c:` + `pca9554:` in the
-    example). Toggle polarity with `inverted:` on each pin — PWDN is typically
-    active-high (high = powered down), RST active-low.
-  - **SCCB pins.** `sda: 37 / scl: 38` are the sensor I2C. Verify against your
-    board.
-  - Try `powerdown_pin`/`enable_pin` inversion first — a sensor held in
-    power-down or with CAM_EN low is the most common "not detected".
+## 2. Frames flow
+Expected: no `Frame capture timed out` warnings; `person_detect` logs one line
+per inference. The capture loop uses a non-blocking `VIDIOC_DQBUF` poll rather
+than `select()`, because esp_video's V4L2 devices don't hook ESP-IDF's VFS
+select/poll — a `select()`-gated capture times out forever even though frames are
+flowing. If you port the backend, keep the DQBUF poll.
 
-## 3. Frames flow
-- `person_detect` should stop logging "Frame capture timed out". If it keeps
-  timing out after detection succeeds, the ISP output format or buffer setup is
-  off — confirm the ISP pipeline Kconfig is enabled and try `frame_buffer_count: 3`.
+## 3. Exposure (the one that isn't obvious)
+The SC202CS powers up at its minimum exposure — a near-black frame — and only
+auto-exposes if `esp_ipa` has a tuning config, which isn't wired up. The
+component sets exposure/gain explicitly over V4L2 extended controls and
+re-asserts them periodically. Expect boot lines like
+`sensor exposure=811 (range 8..1244 …)` and `sensor gain=63 (range 0..255 …)`.
 
-## 4. Orientation (the empirical one)
-- The D1001 mounts **portrait**; the sensor is landscape. Stand a person upright
-  in view and watch `boxes`/`best`. If detection is weak or misses obvious
-  people, cycle `rotation:` through `90` / `270` (and `0`/`180`) — the
-  upright-trained model needs the image rotated to match the mounting.
-- `dump_config` shows the post-rotation output dims so you can confirm the
-  rotate applied (e.g. 1280x720 → 720x1280 at 90°).
+Check the `frame[min=… max=… mean=…]` probe on each inference line: a healthy
+room reads a `mean` well up from the sensor floor (tens to ~150 depending on
+light). If it's stuck near ~10 you're looking at a black frame — raise
+`exposure:`/`gain:` (raw sensor units). Too washed out — lower them.
 
-## 5. Colour channel order
-- If the sensor is detected and frames flow but confidence is oddly low across
-  the board, the model may be seeing BGR. Flip `swap_rgb: true`.
-- pedestrian_detect expects RGB888; the ISP→PPA path is configured for RGB, but
-  ISP RGB byte order varies by sensor tuning — `swap_rgb` is the one knob.
+## 4. Orientation
+With `rotation: auto`, boot logs `IMU accel ax=… ay=… az=… -> auto rotation N deg`
+from the on-board LSM6DS3TR (`0x6A` on the expander bus). The axis→rotation
+mapping is calibrated for the D1001 (gravity −Y → 0° landscape, +X → 90°
+portrait, +Y → 180°, −X → 270°); rotation is counter-clockwise. Porting to a
+board whose IMU sits differently may need that mapping adjusted — the raw
+`ax/ay/az` are logged for exactly that. Or skip the IMU and set an explicit
+`rotation:`.
 
-## 6. Success criterion
-- Person walks into frame → `present=1` within ~`interval`, `binary_sensor`
-  "Room Occupied" turns **on**.
-- Person leaves → after `clear_after` consecutive misses (+ any `delayed_off`),
-  it turns **off**.
-- Flip the "Presence Detection" switch off → capture stops, sensor clears,
+## 5. Detection
+The model is a full-body pedestrian detector, so frame the camera to see whole
+people, not head-and-shoulders. Expected: a person in view gives `boxes>=1` with
+`best` around 0.7–0.95 and `present=1`; inference is ~75 ms. If frames are
+clearly exposed and upright but confidence is oddly low across the board, the
+model may be seeing BGR — try `swap_rgb: true`.
+
+## 6. End-to-end success
+- Person enters → `present=1` within ~`interval`; the "Room Occupied"
+  `binary_sensor` turns on.
+- Person leaves → after `clear_after` consecutive misses (plus any `delayed_off`)
+  it turns off.
+- Flip the "Presence Detection" switch off → capture stops, presence clears, and
   `psram_free` recovers.
-
-## 7. Report back the numbers
-Capture from a running board for the README memory table:
-- `dump_config`: `model runtime PSRAM cost`, `PPA output buffer`, `PSRAM free
-  low-water`, `Last inference` / `Last PPA rotate`.
-- `esphome compile` size summary: app image / flash %.
