@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.1 — fix inference hang from the frame flush
+
+The v0.2.1 frame flush used an unbounded `while (VIDIOC_DQBUF succeeds)` loop to
+drop stale buffers. On esp_video the driver hands a buffer straight back as fast
+as we requeue it, so that loop never exits — the inference task spun forever
+inside `acquire()` and produced no detections (no `inference` lines, no capture
+timeouts, `Capture failures: 0`). The flush shipped compile-only in v0.2.1, so
+this was its first run on hardware.
+
+Bound the flush to the ring size (`frame_buffer_count`, at most a handful of
+`DQBUF`s), keeping the live-frame benefit without the hang. `acquire()` is now
+fully bounded (the flush by count, the frame wait by timeout).
+
 ## v0.3.0 — share an existing I2C bus for the SCCB
 
 For integrating into a full board (display + touchscreen), where both ESP32-P4

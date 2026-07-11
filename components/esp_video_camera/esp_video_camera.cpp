@@ -423,17 +423,19 @@ bool EspVideoCamera::acquire(person_detect::FrameView &out, uint32_t timeout_ms)
   // Drop already-captured frames so inference runs on a LIVE one. We grab only
   // once per interval, but V4L2's DQBUF is FIFO, so without this it hands back
   // the oldest queued buffer — a frame captured a couple of cycles ago. Requeue
-  // every ready buffer, then wait below for the sensor to fill a fresh one.
-  {
+  // any ready buffer, then wait below for the sensor to fill a fresh one.
+  //
+  // BOUND this to the ring size: esp_video can hand a buffer straight back as
+  // fast as we requeue it (frames queued internally), so an unbounded
+  // "while (DQBUF succeeds)" spins forever and hangs the inference task. There
+  // are at most fb_count_ buffers to drain.
+  for (uint8_t i = 0; i < this->fb_count_; i++) {
     struct v4l2_buffer stale = {};
     stale.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     stale.memory = V4L2_MEMORY_MMAP;
-    while (xioctl(this->fd_, VIDIOC_DQBUF, &stale) == 0) {
-      xioctl(this->fd_, VIDIOC_QBUF, &stale);
-      stale = {};
-      stale.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-      stale.memory = V4L2_MEMORY_MMAP;
-    }
+    if (xioctl(this->fd_, VIDIOC_DQBUF, &stale) != 0)
+      break;  // nothing (more) ready
+    xioctl(this->fd_, VIDIOC_QBUF, &stale);
   }
 
   // The fd is non-blocking (esp_video doesn't support select/poll), so poll
