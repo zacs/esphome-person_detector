@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.3.2 — privacy switch gates detection from a fresh boot
+
+The `person_detect` switch only overrode `write_state()` — it never applied its
+`restore_mode` at boot. So on a fresh boot the entity kept its compile-time
+default and, worse, the detector's `enabled_` stayed on regardless of what the
+switch was restored to: a switch restored to "off" didn't actually idle the
+camera or stop inference. Toggling the switch by hand worked (that path goes
+through `write_state()`); only the boot-time restore was skipped.
+
+Add a `setup()` to the switch that reads `get_initial_state_with_restore()` and
+applies it through `write_state()`, mirroring stock ESPHome switches. Because the
+detector runs at `LATE` priority (after the switch), its `setup()` now sees the
+correct `enabled_` before it decides whether to start the camera. When the switch
+is restored to "off", the detector also publishes a definite occupancy=false so
+the binary sensor isn't left "unknown" in Home Assistant while the camera idles.
+
 ## v0.3.1 — fix inference hang from the frame flush
 
 The v0.2.1 frame flush used an unbounded `while (VIDIOC_DQBUF succeeds)` loop to

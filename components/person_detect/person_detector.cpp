@@ -65,6 +65,15 @@ void PersonDetector::setup() {
   // Honor the privacy toggle's restored state: only stream if enabled.
   if (this->enabled_.load()) {
     this->source_->start();
+  } else {
+    ESP_LOGCONFIG(TAG, "Detection disabled at boot (privacy switch); camera idle");
+#ifdef USE_BINARY_SENSOR
+    // Publish a definite "not occupied" so the entity isn't left unknown in
+    // Home Assistant while the camera stays idle. Done directly (not via
+    // publish_present_) to avoid firing the on_cleared automation at boot.
+    if (this->binary_sensor_ != nullptr)
+      this->binary_sensor_->publish_state(false);
+#endif
   }
 
   BaseType_t ok = xTaskCreatePinnedToCore(
