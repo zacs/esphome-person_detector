@@ -1,4 +1,4 @@
-"""sensor platform for person_detect: detection confidence and/or person count.
+"""sensor platform for person_detect: confidence, person count, ambient light.
 
 Add one entry per metric:
 
@@ -11,6 +11,15 @@ Add one entry per metric:
         person_detect_id: presence
         type: count
         name: "People Count"
+      - platform: person_detect
+        person_detect_id: presence
+        type: illuminance
+        name: "Ambient Light"
+
+`illuminance` is a relative brightness (0-100% of full scale) derived from the
+mean frame luma, not a calibrated lux reading. With the sensor at fixed
+exposure/gain it tracks room light monotonically; it clips toward 100% in very
+bright scenes and reads unknown while the privacy switch idles the camera.
 """
 
 import esphome.codegen as cg
@@ -29,6 +38,7 @@ DEPENDENCIES = ["person_detect"]
 
 TYPE_CONFIDENCE = "confidence"
 TYPE_COUNT = "count"
+TYPE_ILLUMINANCE = "illuminance"
 
 # Per-type unit / accuracy defaults; the user can still override in YAML.
 _TYPE_DEFAULTS = {
@@ -41,6 +51,14 @@ _TYPE_DEFAULTS = {
         unit_of_measurement=UNIT_EMPTY,
         accuracy_decimals=0,
         state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    # Relative brightness, so % (not lx / device_class illuminance, which would
+    # imply a calibrated absolute reading we can't give).
+    TYPE_ILLUMINANCE: dict(
+        unit_of_measurement=UNIT_PERCENT,
+        accuracy_decimals=0,
+        state_class=STATE_CLASS_MEASUREMENT,
+        icon="mdi:brightness-percent",
     ),
 }
 
@@ -59,7 +77,7 @@ def _schema(config):
         {
             cv.GenerateID(CONF_PERSON_DETECT_ID): cv.use_id(PersonDetector),
             cv.Optional(CONF_TYPE, default=TYPE_CONFIDENCE): cv.enum(
-                {TYPE_CONFIDENCE: TYPE_CONFIDENCE, TYPE_COUNT: TYPE_COUNT}, lower=True
+                {t: t for t in _TYPE_DEFAULTS}, lower=True
             ),
         }
     )(config)
@@ -67,11 +85,14 @@ def _schema(config):
 
 CONFIG_SCHEMA = _schema
 
+_SETTERS = {
+    TYPE_CONFIDENCE: "set_confidence_sensor",
+    TYPE_COUNT: "set_count_sensor",
+    TYPE_ILLUMINANCE: "set_illuminance_sensor",
+}
+
 
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_PERSON_DETECT_ID])
     sens = await sensor.new_sensor(config)
-    if config[CONF_TYPE] == TYPE_CONFIDENCE:
-        cg.add(parent.set_confidence_sensor(sens))
-    else:
-        cg.add(parent.set_count_sensor(sens))
+    cg.add(getattr(parent, _SETTERS[config[CONF_TYPE]])(sens))

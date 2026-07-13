@@ -104,7 +104,7 @@ wiring. The detector part is just:
 
 ```yaml
 external_components:
-  - source: github://zacs/esphome-person_detector@v0.2.0   # pin a released tag
+  - source: github://zacs/esphome-person_detector@v0.4.0   # pin a released tag
     components: [person_detect, esp_video_camera]
 
 person_detect:
@@ -207,12 +207,28 @@ sensor:                          # optional
     person_detect_id: presence
     type: count                  # boxes over threshold
     name: "People Count"
+  - platform: person_detect
+    person_detect_id: presence
+    type: illuminance            # relative ambient light, 0–100 % (see below)
+    name: "Ambient Light"
 
 switch:                          # optional detection on/off (privacy)
   - platform: person_detect
     person_detect_id: presence
     name: "Presence Detection"   # on = detecting (default); off = camera idle, no inference
 ```
+
+### Ambient light
+
+The `illuminance` sensor is a free by-product of the frames the detector already
+pulls — the device has no dedicated light sensor. It reports the mean frame
+brightness as a **relative** 0–100 %, not calibrated lux. Because the camera runs
+at a fixed exposure and gain, that value tracks room light monotonically, so it's
+useful for "is it dark?" automations even though it isn't an absolute reading. Two
+things to keep in mind: it's a whole-frame average, so a bright lamp in view skews
+it, and it clips toward 100 % in very bright scenes (the fixed exposure is tuned
+for indoor light). While the privacy switch idles the camera it reads *unknown*
+rather than a misleading 0 %.
 
 ## Frame sources
 

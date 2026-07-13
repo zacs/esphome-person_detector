@@ -129,6 +129,10 @@ sensor:
     person_detect_id: presence
     type: count
     name: "People Count"
+  - platform: person_detect
+    person_detect_id: presence
+    type: illuminance
+    name: "Ambient Light"
 
 switch:
   - platform: person_detect

@@ -133,6 +133,10 @@ sensor:
     person_detect_id: presence
     type: count
     name: "People Count"
+  - platform: person_detect
+    person_detect_id: presence
+    type: illuminance          # relative ambient light (0-100%), from frame luma
+    name: "Ambient Light"
 
 switch:
   - platform: person_detect

@@ -34,10 +34,11 @@ enum class Model : uint8_t {
 
 // Result produced by one inference, handed from the task to the main loop.
 struct InferenceResult {
-  bool person_raw{false};  // best-box score >= threshold
-  float best_score{0.0f};  // 0..1
-  uint8_t count{0};        // boxes >= threshold
-  uint32_t infer_ms{0};    // inference wall time
+  bool person_raw{false};   // best-box score >= threshold
+  float best_score{0.0f};   // 0..1
+  uint8_t count{0};         // boxes >= threshold
+  uint32_t infer_ms{0};     // inference wall time
+  float illuminance{0.0f};  // whole-frame brightness, 0..100%
 };
 
 class PersonDetector : public Component {
@@ -67,6 +68,8 @@ class PersonDetector : public Component {
 #ifdef USE_SENSOR
   void set_confidence_sensor(sensor::Sensor *s) { this->confidence_sensor_ = s; }
   void set_count_sensor(sensor::Sensor *s) { this->count_sensor_ = s; }
+  // Ambient light estimated from mean frame brightness (relative, 0..100%).
+  void set_illuminance_sensor(sensor::Sensor *s) { this->illuminance_sensor_ = s; }
 #endif
 
   // Privacy toggle. When disabled the camera is idled and no inference runs.
@@ -103,6 +106,7 @@ class PersonDetector : public Component {
 #ifdef USE_SENSOR
   sensor::Sensor *confidence_sensor_{nullptr};
   sensor::Sensor *count_sensor_{nullptr};
+  sensor::Sensor *illuminance_sensor_{nullptr};
 #endif
 
   // Runtime

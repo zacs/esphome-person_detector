@@ -1,3 +1,4 @@
+#include <cmath>
 #include <list>
 
 #include "person_detector.h"
@@ -155,27 +156,50 @@ void PersonDetector::run_inference_(const FrameView &frame) {
       break;
   }
 
-  // Frame-content sanity probe: subsample the buffer so a blank/black frame (ISP
-  // not exposing the RAW sensor) is distinguishable from a valid image in which
-  // the model simply found no person. Cheap (~a few thousand byte reads).
-  uint32_t px_sum = 0;
+  // Whole-frame brightness probe. Serves two purposes: a blank-frame sanity
+  // check (an ISP not exposing the RAW sensor reads ~uniform, distinguishing it
+  // from a valid image where the model simply found no person) and the ambient-
+  // light reading. Per-pixel Rec.601 luma sampled across the frame; because the
+  // sensor runs at fixed exposure/gain, mean luma tracks scene illumination.
+  // Cheap: a few thousand samples at the detection interval.
+  uint32_t px_sum = 0;  // reused as mean luma (0..255)
   uint8_t px_min = 255, px_max = 0;
   {
     size_t bytes_per_px = (frame.format == FRAME_FORMAT_RGB888) ? 3
                           : (frame.format == FRAME_FORMAT_RGB565) ? 2
                                                                   : 1;
-    size_t nbytes = static_cast<size_t>(frame.width) * frame.height * bytes_per_px;
-    size_t step = nbytes > 4096 ? nbytes / 4096 : 1;
+    size_t npx = static_cast<size_t>(frame.width) * frame.height;
+    size_t step = npx > 4096 ? npx / 4096 : 1;
     size_t samples = 0;
-    for (size_t i = 0; i < nbytes; i += step) {
-      uint8_t v = frame.data[i];
-      px_sum += v;
-      if (v < px_min) px_min = v;
-      if (v > px_max) px_max = v;
+    for (size_t p = 0; p < npx; p += step) {
+      const uint8_t *px = frame.data + p * bytes_per_px;
+      uint8_t y;
+      switch (frame.format) {
+        case FRAME_FORMAT_RGB565: {
+          uint16_t v =
+              static_cast<uint16_t>(px[0]) | (static_cast<uint16_t>(px[1]) << 8);
+          uint8_t r = ((v >> 11) & 0x1F) << 3;
+          uint8_t g = ((v >> 5) & 0x3F) << 2;
+          uint8_t b = (v & 0x1F) << 3;
+          y = static_cast<uint8_t>((77 * r + 150 * g + 29 * b) >> 8);
+          break;
+        }
+        case FRAME_FORMAT_GRAYSCALE:
+          y = px[0];
+          break;
+        case FRAME_FORMAT_RGB888:
+        default:
+          y = static_cast<uint8_t>((77 * px[0] + 150 * px[1] + 29 * px[2]) >> 8);
+          break;
+      }
+      px_sum += y;
+      if (y < px_min) px_min = y;
+      if (y > px_max) px_max = y;
       samples++;
     }
-    px_sum = samples ? px_sum / samples : 0;  // reuse as mean
+    px_sum = samples ? px_sum / samples : 0;  // reuse as mean luma
   }
+  float illuminance_pct = px_sum * 100.0f / 255.0f;
 
   uint32_t t0 = millis();
   // ESP-DL resizes the frame to the model's 224x224 input internally; on P4 that
@@ -199,10 +223,10 @@ void PersonDetector::run_inference_(const FrameView &frame) {
 
   ESP_LOGD(TAG,
            "inference %ums: %ux%u boxes=%u best=%.2f present=%d "
-           "frame[min=%u max=%u mean=%u] psram_free=%u",
+           "luma[min=%u max=%u mean=%u] light=%.0f%% psram_free=%u",
            (unsigned) dt, frame.width, frame.height, (unsigned) results.size(),
            best, person, (unsigned) px_min, (unsigned) px_max, (unsigned) px_sum,
-           (unsigned) psram);
+           illuminance_pct, (unsigned) psram);
 
   xSemaphoreTake(this->result_mutex_, portMAX_DELAY);
   this->last_infer_ms_ = dt;
@@ -216,6 +240,7 @@ void PersonDetector::run_inference_(const FrameView &frame) {
     this->pending_.best_score = best;
     this->pending_.count = count;
     this->pending_.infer_ms = dt;
+    this->pending_.illuminance = illuminance_pct;
     this->has_new_result_ = true;
   }
   xSemaphoreGive(this->result_mutex_);
@@ -235,6 +260,10 @@ void PersonDetector::loop() {
       this->confidence_sensor_->publish_state(0.0f);
     if (this->count_sensor_ != nullptr)
       this->count_sensor_->publish_state(0);
+    // The camera is idled, so ambient light is genuinely unknown (not zero):
+    // publish NaN, which Home Assistant renders as "unknown".
+    if (this->illuminance_sensor_ != nullptr)
+      this->illuminance_sensor_->publish_state(NAN);
 #endif
   }
 
@@ -261,6 +290,8 @@ void PersonDetector::loop() {
     this->confidence_sensor_->publish_state(r.best_score * 100.0f);
   if (this->count_sensor_ != nullptr)
     this->count_sensor_->publish_state(r.count);
+  if (this->illuminance_sensor_ != nullptr)
+    this->illuminance_sensor_->publish_state(r.illuminance);
 #endif
 
   // Debounce: assert immediately, clear only after N consecutive misses.

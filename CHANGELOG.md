@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.0 — ambient light sensor from the camera feed
+
+The device has no dedicated light sensor, but the detector already computes a
+whole-frame brightness value each cycle (the blank-frame sanity probe). Expose it
+as a new optional `type: illuminance` on the `person_detect` sensor platform: a
+relative 0–100 % ambient-light reading derived from the mean frame luma. Because
+the sensor runs at fixed exposure/gain, mean brightness tracks room light
+monotonically, so it's useful for "is it dark?" automations even though it isn't
+calibrated lux.
+
+The probe was upgraded from a raw byte mean to a proper per-pixel Rec.601 luma
+(handling RGB888/RGB565/grayscale), which also makes the debug `luma[min max
+mean]` line meaningful. It's a whole-frame average (a bright lamp in view skews
+it) and clips toward 100 % in bright scenes. While the privacy switch idles the
+camera the sensor publishes NaN, so Home Assistant shows *unknown* rather than a
+misleading 0 %.
+
 ## v0.3.2 — privacy switch gates detection from a fresh boot
 
 The `person_detect` switch only overrode `write_state()` — it never applied its
