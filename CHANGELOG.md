@@ -1,37 +1,31 @@
 # Changelog
 
-## v0.4.0 — ambient light sensor from the camera feed
+## v0.4.0 — ambient light sensor + privacy-switch boot-gate fix
 
-The device has no dedicated light sensor, but the detector already computes a
-whole-frame brightness value each cycle (the blank-frame sanity probe). Expose it
-as a new optional `type: illuminance` on the `person_detect` sensor platform: a
-relative 0–100 % ambient-light reading derived from the mean frame luma. Because
-the sensor runs at fixed exposure/gain, mean brightness tracks room light
-monotonically, so it's useful for "is it dark?" automations even though it isn't
-calibrated lux.
+**Ambient light sensor.** The device has no dedicated light sensor, but the
+detector already computes a whole-frame brightness value each cycle (the
+blank-frame sanity probe). Expose it as a new optional `type: illuminance` on the
+`person_detect` sensor platform: a relative 0–100 % ambient-light reading derived
+from the mean frame luma. Because the sensor runs at fixed exposure/gain, mean
+brightness tracks room light monotonically, so it's useful for "is it dark?"
+automations even though it isn't calibrated lux. The probe was upgraded from a raw
+byte mean to a proper per-pixel Rec.601 luma (handling RGB888/RGB565/grayscale),
+which also makes the debug `luma[min max mean]` line meaningful. It's a
+whole-frame average (a bright lamp in view skews it) and clips toward 100 % in
+bright scenes. While the privacy switch idles the camera the sensor publishes NaN,
+so Home Assistant shows *unknown* rather than a misleading 0 %.
 
-The probe was upgraded from a raw byte mean to a proper per-pixel Rec.601 luma
-(handling RGB888/RGB565/grayscale), which also makes the debug `luma[min max
-mean]` line meaningful. It's a whole-frame average (a bright lamp in view skews
-it) and clips toward 100 % in bright scenes. While the privacy switch idles the
-camera the sensor publishes NaN, so Home Assistant shows *unknown* rather than a
-misleading 0 %.
-
-## v0.3.2 — privacy switch gates detection from a fresh boot
-
-The `person_detect` switch only overrode `write_state()` — it never applied its
-`restore_mode` at boot. So on a fresh boot the entity kept its compile-time
-default and, worse, the detector's `enabled_` stayed on regardless of what the
-switch was restored to: a switch restored to "off" didn't actually idle the
-camera or stop inference. Toggling the switch by hand worked (that path goes
-through `write_state()`); only the boot-time restore was skipped.
-
-Add a `setup()` to the switch that reads `get_initial_state_with_restore()` and
-applies it through `write_state()`, mirroring stock ESPHome switches. Because the
-detector runs at `LATE` priority (after the switch), its `setup()` now sees the
-correct `enabled_` before it decides whether to start the camera. When the switch
-is restored to "off", the detector also publishes a definite occupancy=false so
-the binary sensor isn't left "unknown" in Home Assistant while the camera idles.
+**Privacy-switch boot gate.** The `person_detect` switch only overrode
+`write_state()` — it never applied its `restore_mode` at boot, so on a fresh boot
+the detector's `enabled_` stayed on regardless of what the switch was restored to:
+a switch restored to "off" didn't actually idle the camera or stop inference
+(toggling it by hand worked; only the boot-time restore was skipped). The switch
+now has a `setup()` that reads `get_initial_state_with_restore_mode()` and applies
+it via `write_state()`, mirroring stock ESPHome switches. The detector runs at
+`LATE` priority (after the switch), so its `setup()` sees the correct `enabled_`
+before deciding whether to start the camera; when restored to "off" it publishes a
+definite occupancy=false instead of leaving the binary sensor unknown. (This fix
+was slated for a v0.3.2 tag whose build failed on a bad API name; it ships here.)
 
 ## v0.3.1 — fix inference hang from the frame flush
 
