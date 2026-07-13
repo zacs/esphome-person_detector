@@ -12,21 +12,30 @@ from . import CONF_PERSON_DETECT_ID, PersonDetector, person_detect_ns
 
 DEPENDENCIES = ["person_detect"]
 
+# Also a Component so its setup() (which applies restore_mode at boot) runs.
 PersonDetectSwitch = person_detect_ns.class_(
-    "PersonDetectSwitch", switch.Switch, cg.Parented.template(PersonDetector)
+    "PersonDetectSwitch",
+    switch.Switch,
+    cg.Component,
+    cg.Parented.template(PersonDetector),
 )
 
-CONFIG_SCHEMA = switch.switch_schema(
-    PersonDetectSwitch,
-    default_restore_mode="RESTORE_DEFAULT_ON",
-    icon="mdi:motion-sensor",
-).extend(
-    {
-        cv.GenerateID(CONF_PERSON_DETECT_ID): cv.use_id(PersonDetector),
-    }
+CONFIG_SCHEMA = (
+    switch.switch_schema(
+        PersonDetectSwitch,
+        default_restore_mode="RESTORE_DEFAULT_ON",
+        icon="mdi:motion-sensor",
+    )
+    .extend(
+        {
+            cv.GenerateID(CONF_PERSON_DETECT_ID): cv.use_id(PersonDetector),
+        }
+    )
+    .extend(cv.COMPONENT_SCHEMA)
 )
 
 
 async def to_code(config):
     sw = await switch.new_switch(config)
+    await cg.register_component(sw, config)
     await cg.register_parented(sw, config[CONF_PERSON_DETECT_ID])
