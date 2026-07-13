@@ -22,7 +22,7 @@ class PersonDetectSwitch : public switch_::Switch, public Parented<PersonDetecto
   // at LATE priority (after this switch), so setting enabled_ here means its
   // setup() sees the right value before it decides whether to start the camera.
   void setup() override {
-    auto restored = this->get_initial_state_with_restore();
+    auto restored = this->get_initial_state_with_restore_mode();
     if (restored.has_value())
       this->write_state(*restored);
   }
